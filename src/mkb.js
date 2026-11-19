@@ -13,9 +13,9 @@
   // Standard mapping: 0 A, 1 B, 2 X, 3 Y, 4 LB, 5 RB, 6 LT, 7 RT, 8 View, 9 Menu, 10 L3, 11 R3, 12-15 D-pad, 16 Guide
   const SHARED = { KeyE: 0, KeyC: 1, Backspace: 1, KeyV: 3, KeyQ: 4, KeyF: 5,
     Tab: 8, Enter: 9, KeyX: 10, KeyZ: 11, ArrowUp: 12, ArrowDown: 13, ArrowLeft: 14, ArrowRight: 15, Home: 16 };
-  const FOOT = { ...SHARED, Space: 2, KeyR: 1 };             // Shift = sprint (A tapped), see pad()
+  const FOOT = { ...SHARED, Space: 2, KeyR: 1, ShiftLeft: 10, ShiftRight: 10 };  // Shift = sprint (hold L3)
   const DRIVE = { ...SHARED, Space: 5, KeyR: 2, ShiftLeft: 0, ShiftRight: 0 };
-  const MOVE = new Set(['ShiftLeft', 'ShiftRight', 'KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyK', 'KeyL', 'KeyG', 'ControlLeft', 'ControlRight']);
+  const MOVE = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyK', 'KeyL', 'KeyG', 'ControlLeft', 'ControlRight']);
   const V_MIN = 60, V_HOLD = 400, SWITCH_DEBOUNCE = 500;
 
   const held = new Set(), mouse = new Set();
@@ -125,10 +125,6 @@
   function pad(index) {
     const map = M.mode === 'drive' ? DRIVE : FOOT, on = new Array(17).fill(0);
     for (const c of held) if (c in map) on[map[c]] = 1;
-    // Sprint: GTA wants A tapped, so holding Shift taps A about 8 times a second.
-    if (M.mode === 'foot' && !M.phone && (held.has('ShiftLeft') || held.has('ShiftRight')) && get('sprintTap', '1') === '1')
-      on[0] = Math.floor(performance.now() / 60) % 2 === 0 ? 1 : on[0];
-    else if (M.mode === 'foot' && (held.has('ShiftLeft') || held.has('ShiftRight'))) on[0] = 1;
     if (M.phone) {
       if (mouse.has(0)) on[0] = 1;
       if (mouse.has(2)) on[1] = 1;

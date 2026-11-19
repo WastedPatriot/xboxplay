@@ -248,9 +248,7 @@ function key(ctx, type, code, extra) { return ctx._fire(type, { code, repeat: fa
     await sleep(200);
     check(gp().axes[2] === 0, 'look stick returns to centre after the move');
     key(ctx, 'keydown', 'ShiftLeft');
-    let a = new Set();
-    for (let i = 0; i < 12; i++) { a.add(gp().buttons[0].pressed); await sleep(25); }
-    check(a.has(true) && a.has(false), 'holding Shift taps A to sprint');
+    check(gp().buttons[10].pressed && !gp().buttons[0].pressed, 'holding Shift holds L3 to sprint');
     key(ctx, 'keyup', 'ShiftLeft');
     key(ctx, 'keydown', 'Space');
     check(gp().buttons[2].pressed && !gp().buttons[0].pressed, 'Space is X (jump) on foot');
