@@ -1,0 +1,5 @@
+node_modules/
+*.log
+better-xcloud.user.js
+test-shot.png
+.env*
