@@ -8,20 +8,39 @@
   const get = (k, d) => { const v = LS.getItem('xboxplay.' + k); return v === null ? d : v; };
   if (LS.getItem('xboxplay.v2') === null) { if (LS.getItem('xboxplay.sens') === '1') LS.setItem('xboxplay.sens', '2'); if (LS.getItem('xboxplay.trackpad') === '1') LS.setItem('xboxplay.trackpad', '2.5'); LS.setItem('xboxplay.v2', '1'); }
   const num = (k, d) => { const v = parseFloat(get(k, '')); return Number.isFinite(v) ? v : d; };
+  // xCloud has its own keyboard handling (Space = A and so on). While the mouse is captured, page listeners for
+  // keys and mouse never see the events, so only the virtual pad drives the game.
+  const ET = typeof EventTarget === 'function' ? EventTarget.prototype : null;
+  const ADD = ET ? ET.addEventListener : function (t, f, o) { return window.addEventListener(t, f, o); }, REMOVE = ET && ET.removeEventListener;
+  const KM = new Set(['keydown', 'keyup', 'keypress', 'mousedown', 'mouseup', 'mousemove', 'click', 'auxclick', 'dblclick',
+    'pointerdown', 'pointerup', 'pointermove', 'pointerrawupdate', 'wheel']);
+  const wraps = new WeakMap();
+  const muted = e => { const m = window.__xboxplayMKB; return !!(m && m.active() && !(e.target && e.target.closest && e.target.closest('xboxplay-ui'))); };
+  if (ET) ET.addEventListener = function (type, fn, opts) {
+    if (!KM.has(type) || !fn) return ADD.call(this, type, fn, opts);
+    let w = wraps.get(fn);
+    if (!w) { w = function (e) { if (muted(e)) return; return typeof fn === 'function' ? fn.call(this, e) : fn.handleEvent(e); }; wraps.set(fn, w); }
+    return ADD.call(this, type, w, opts);
+  };
+  if (ET) ET.removeEventListener = function (type, fn, opts) {
+    return REMOVE.call(this, type, (fn && wraps.get(fn)) || fn, opts);
+  };
   const debug = (...a) => { if (window.__XBOXPLAY_DEBUG) console.log('[XboxPlay]', ...a); };
 
   // Standard mapping: 0 A, 1 B, 2 X, 3 Y, 4 LB, 5 RB, 6 LT, 7 RT, 8 View, 9 Menu, 10 L3, 11 R3, 12-15 D-pad, 16 Guide
-  const SHARED = { KeyE: 0, KeyC: 1, Backspace: 1, KeyV: 3, KeyQ: 4, KeyF: 5,
-    Tab: 8, Enter: 9, KeyX: 10, KeyZ: 11, ArrowUp: 12, ArrowDown: 13, ArrowLeft: 14, ArrowRight: 15, Home: 16 };
-  const FOOT = { ...SHARED, Space: 2, KeyR: 1, ShiftLeft: 10, ShiftRight: 10 };  // Shift = sprint (hold L3)
-  const DRIVE = { ...SHARED, Space: 5, KeyR: 2, ShiftLeft: 0, ShiftRight: 0 };
-  const MOVE = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyK', 'KeyL', 'KeyG', 'ControlLeft', 'ControlRight']);
+  // Layout follows GTA 6's default controller scheme (gtabase.com controls guide), with PC-style keys.
+  const SHARED = { KeyE: 3, KeyF: 3, KeyV: 3, KeyC: 1, ControlLeft: 1, ControlRight: 1, Backspace: 1, KeyR: 2,
+    KeyQ: 5, Tab: 4, KeyM: 8, Enter: 9, KeyP: 9, KeyX: 10, KeyZ: 11, Space: 0, ShiftLeft: 10, ShiftRight: 10,
+    ArrowUp: 12, ArrowDown: 13, ArrowLeft: 14, ArrowRight: 15, Home: 16 };
+  const FOOT = { ...SHARED };
+  const DRIVE = { ...SHARED, KeyH: 10 };
+  const MOVE = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyK', 'KeyL', 'KeyG', 'KeyT']);
   const V_MIN = 60, V_HOLD = 400, SWITCH_DEBOUNCE = 500;
 
   const held = new Set(), mouse = new Set();
   const cur = { lx: 0, ly: 0, lt: 0, rt: 0 };            // smoothed analog values
   let accX = 0, accY = 0, rx = 0, ry = 0, ts = performance.now(), announced = false, lastSwitch = -1e9, last = performance.now();
-  let phoneWheel = 0, phoneWheelTimer = 0, vDownAt = 0, vTimer = 0, vToggle = false;
+  let vKey = 'KeyV', phoneWheel = 0, phoneWheelTimer = 0, vDownAt = 0, vTimer = 0, vToggle = false;
   let hasRaw = false, lastMoveTs = -1, lastMX = 0, lastMY = 0, lastScreenX, lastScreenY, dbgAt = 0;
   const pref = LS.getItem('xboxplay.mkb');
   const M = window.__xboxplayMKB = {
@@ -76,13 +95,12 @@
   // What the keys/mouse ask for right now (before smoothing). Clicks never fight W/S: take the max.
   function targets() {
     const lt = Math.max((!M.phone && mouse.has(2)) ? 1 : 0, h('KeyK'));
-    const rt = Math.max((!M.phone && mouse.has(0)) ? 1 : 0, h('KeyL'));
+    const rt = Math.max((!M.phone && M.mode === 'foot' && mouse.has(0)) ? 1 : 0, h('KeyL'));
     let lx = h('KeyD') - h('KeyA');
     if (M.mode === 'drive') return { lx, ly: 0, lt: Math.max(lt, h('KeyS')), rt: Math.max(rt, h('KeyW')) };
     let ly = h('KeyS') - h('KeyW');
     const len = Math.hypot(lx, ly); if (len > 1) { lx /= len; ly /= len; }                // diagonals
-    const walk = held.has('ControlLeft') || held.has('ControlRight') ? 0.5 : 1;
-    return { lx: lx * walk, ly: ly * walk, lt, rt };
+    return { lx, ly, lt, rt };
   }
 
   // Ramp towards the target with an exponential ease: ~smoothing ms to settle, twice as fast to release.
@@ -125,6 +143,9 @@
   function pad(index) {
     const map = M.mode === 'drive' ? DRIVE : FOOT, on = new Array(17).fill(0);
     for (const c of held) if (c in map) on[map[c]] = 1;
+    if (held.has('KeyT')) { on[10] = 1; on[11] = 1; }
+    if (!M.phone && mouse.has(1)) on[11] = 1;
+    if (!M.phone && M.mode === 'drive' && mouse.has(0)) on[5] = 1;
     if (M.phone) {
       if (mouse.has(0)) on[0] = 1;
       if (mouse.has(2)) on[1] = 1;
@@ -143,8 +164,10 @@
     if (!M.enabled) return real;
     slot = real.findIndex(p => !p); if (slot < 0) slot = real.length;
     while (real.length < 4) real.push(null);
-    real[slot] = pad(slot); return real;
+    real[slot] = pad(slot); gpCalls++; return real;
   };
+  let gpCalls = 0;
+  setInterval(() => { if (gpCalls || M.active()) debug('game read the virtual pad ' + gpCalls + ' times in 3s, mode=' + M.mode); gpCalls = 0; }, 3000);
   function announce() { if (announced) return; announced = true; try { const e = new Event('gamepadconnected');
     Object.defineProperty(e, 'gamepad', { value: pad(slot) }); window.dispatchEvent(e); } catch (e) {} }
 
@@ -197,16 +220,17 @@
     }
   }
 
-  const on = (t, f) => window.addEventListener(t, f, true);
+  const on = (t, f) => ADD.call(window, t, f, true);
   const mapped = c => c in FOOT || c in DRIVE || MOVE.has(c);
   const eat = e => { e.preventDefault(); e.stopImmediatePropagation(); };
 
-  function releaseV() {
-    if (vTimer || !held.has('KeyV')) return;
+  function releaseV(code) {
+    code = code || vKey;
+    if (vTimer || !held.has(code)) return;
     const dur = performance.now() - vDownAt;
     vToggle = get('autoSwitch', '1') !== '0' && dur < V_HOLD && performance.now() - lastSwitch > SWITCH_DEBOUNCE;
     const later = () => {
-      vTimer = 0; held.delete('KeyV'); ts = performance.now();
+      vTimer = 0; held.delete(code); ts = performance.now();
       if (vToggle) M.setMode(M.mode === 'drive' ? 'foot' : 'drive');
     };
     const wait = Math.max(0, V_MIN - dur);
@@ -218,8 +242,9 @@
     if (!M.active() || !mapped(e.code)) return;
     eat(e); if (e.repeat) return;                                      // one physical press, ignore OS key repeat
     if (e.code === 'KeyG') { M.setMode(M.mode === 'drive' ? 'foot' : 'drive'); return; }
-    if (e.code === 'KeyV') {
-      if (vTimer) { clearTimeout(vTimer); vTimer = 0; }
+    if (e.code === 'KeyV' || e.code === 'KeyF') {
+      if (vTimer) { clearTimeout(vTimer); vTimer = 0; held.delete(vKey); }
+      vKey = e.code;
       vDownAt = performance.now(); vToggle = false;
     }
     if (e.code === 'ArrowUp') enterPhone();
@@ -227,8 +252,8 @@
   });
   on('keyup', e => {
     const c = e.code;
-    if (c === 'KeyV') {
-      if (held.has('KeyV') || vTimer) releaseV();
+    if (c === 'KeyV' || c === 'KeyF') {
+      if (held.has(c) || (vTimer && vKey === c)) releaseV(c);
       if (M.active()) eat(e);
       return;
     }
@@ -247,7 +272,7 @@
       if (lockEl) lockPointer(lockEl);
       announce(); badge(); eat(e); return;
     }
-    if (!M.active() || (e.button !== 0 && e.button !== 2)) return;
+    if (!M.active() || e.button > 2) return;
     mouse.add(e.button); eat(e);
   });
   on('mouseup', e => {

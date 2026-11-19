@@ -27,7 +27,7 @@ app.on('browser-window-created', (ev, win) => {
       await js('window.__xboxplayUI.close(); window.__xboxplayMKB.enabled = true; window.__xboxplayMKB.forceActive = true; window.__xboxplayMKB.setMode("foot", true)');
       await sleep(300);
       wc.sendInputEvent({ type: 'keyDown', keyCode: 'Space' }); await sleep(100);
-      check(await js(`(() => { const p = [...navigator.getGamepads()].find(g => g && g.id.includes('XInput')); return !!p && p.mapping === 'standard' && p.buttons[2].pressed; })()`), 'Space presses X (jump) on the virtual pad');
+      check(await js(`(() => { const p = [...navigator.getGamepads()].find(g => g && g.id.includes('XInput')); return !!p && p.mapping === 'standard' && p.buttons[0].pressed; })()`), 'Space presses A (jump) on the virtual pad');
       wc.sendInputEvent({ type: 'keyUp', keyCode: 'Space' });
       await sleep(600);   // mode switches are debounced by 0.5s
       wc.sendInputEvent({ type: 'keyDown', keyCode: 'V' }); wc.sendInputEvent({ type: 'keyUp', keyCode: 'V' });

@@ -251,8 +251,17 @@ function key(ctx, type, code, extra) { return ctx._fire(type, { code, repeat: fa
     check(gp().buttons[10].pressed && !gp().buttons[0].pressed, 'holding Shift holds L3 to sprint');
     key(ctx, 'keyup', 'ShiftLeft');
     key(ctx, 'keydown', 'Space');
-    check(gp().buttons[2].pressed && !gp().buttons[0].pressed, 'Space is X (jump) on foot');
+    check(gp().buttons[0].pressed, 'Space is A (jump) on foot, as in GTA 6');
     key(ctx, 'keyup', 'Space');
+    key(ctx, 'keydown', 'KeyC');
+    check(gp().buttons[1].pressed, 'C is B (crouch)');
+    key(ctx, 'keyup', 'KeyC');
+    key(ctx, 'keydown', 'KeyE');
+    check(gp().buttons[3].pressed, 'E is Y (interact)');
+    key(ctx, 'keyup', 'KeyE');
+    key(ctx, 'keydown', 'KeyT');
+    check(gp().buttons[10].pressed && gp().buttons[11].pressed, 'T is Focus (L3 + R3)');
+    key(ctx, 'keyup', 'KeyT');
   }
 
   if (failed) {

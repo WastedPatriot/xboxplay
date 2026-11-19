@@ -24,25 +24,29 @@ If you'd rather read it first (fair), download `install.sh`, look through it, th
 
 Sign in, go to your console (or a cloud game) and start the stream. Click inside the stream to capture the mouse. Esc gives it back.
 
-There are two layouts, because driving with WASD on a stick doesn't work: on foot, and driving. A short tap of V (Y, get in/out of a vehicle) flips between them. Hold V if you just want Y without switching. Games don't tell the page whether you're in a car, so if it gets out of step press G. The corner badge shows which one you're in.
+There are two layouts, because driving with WASD on a stick doesn't work: on foot, and driving. A short tap of F or V (Y, get in/out of a vehicle) flips between them. Hold V if you just want Y without switching. Games don't tell the page whether you're in a car, so if it gets out of step press G. The corner badge shows which one you're in.
 
 The phone in GTA opens with the up arrow. While it's open, the mouse look pauses, the wheel moves up and down the list, left click selects (A), and right click, C or Backspace closes it (B). Two-finger trackpad scrolling is left alone until the phone is actually open.
 
-| Controller | On foot | Driving |
+The layout matches GTA 6's default controller scheme, with keys where PC players expect them.
+
+| Action | On foot | Driving |
 |---|---|---|
-| Left stick | W A S D (Ctrl to walk) | A / D steer |
-| RT | Left click or L | W, left click or L |
-| LT | Right click or K | S, right click or K |
-| Right stick | Mouse / trackpad | Mouse / trackpad |
-| A | E | Shift or E |
-| RB | F | Space (handbrake) or F |
-| B | R (reload), C or Backspace | C or Backspace |
-| X | Space (jump) | R |
-| Y | V | same |
-| LB | Q | same |
-| L3 / R3 | Shift (sprint) or X / Z | X / Z |
-| D-pad | Arrow keys (up also opens the phone) | same |
-| View / Menu | Tab / Enter | same |
+| Move / steer | W A S D | A / D, W accelerate, S brake |
+| Look | Mouse / trackpad | Mouse / trackpad |
+| Run (L3) / horn | Shift | Shift or H |
+| Jump (A) / handbrake | Space | Space |
+| Crouch / duck (B) | C or Ctrl | C or Ctrl |
+| Interact, enter, exit (Y) | E, F or V | E, F or V |
+| Melee / kick (X) | R | R |
+| Aim (LT) | Right click or K | Right click or K (brake) |
+| Shoot | Left click or L (RT) | Left click (RB) |
+| Cover (RB) | Q | Q |
+| Loadout / sidearm (LB) | Tab | Tab |
+| Zoom, look back (R3) | Middle click or Z | Middle click or Z |
+| Focus (L3 + R3) | T | T |
+| Map / pause | M / Enter or P | same |
+| D-pad | Arrow keys (up is the phone) | same |
 | Guide | Home | same |
 
 Keys ease in over about 100ms instead of snapping to full, so steering and throttle feel less twitchy. K and L are there for trackpad users who can't right-click and move at the same time.
