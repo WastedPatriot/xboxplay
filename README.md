@@ -1,5 +1,92 @@
 # XboxPlay
 
-Xbox Remote Play desktop app for Linux with built-in keyboard and mouse controls.
+A small Linux app for playing my Xbox (remote play) and Xbox Cloud Gaming in its own window, with keyboard and mouse.
 
-Install: `bash install.sh`
+I built this because Greenlight wouldn't connect on my work network, while xbox.com/play in Chrome worked fine. So this is just that website in an Electron window, plus a keyboard and mouse layer that makes the game think a controller is plugged in.
+
+Not affiliated with or endorsed by Microsoft. Xbox is a trademark of Microsoft. You still need your own Xbox account, and Game Pass for cloud games.
+
+![Controls guide (F1)](docs/guide.png)
+
+## Install
+
+Debian, Ubuntu, Parrot and similar:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/WastedPatriot/xboxplay/main/install.sh | bash
+```
+
+It installs git/node/npm with apt if they're missing, clones this repo to `~/xboxplay`, runs `npm ci` (Electron 45.4.1, pinned in the lockfile), and adds an `xboxplay` command and an app menu entry. It asks for sudo once to set up Chromium's sandbox helper. Run the same line again to update.
+
+If you'd rather read it first (fair), download `install.sh`, look through it, then run `bash install.sh`.
+
+## Using it
+
+Sign in, go to your console (or a cloud game) and start the stream. Click inside the stream to capture the mouse. Esc gives it back.
+
+There are two layouts, because driving with WASD on a stick doesn't work: on foot, and driving. Pressing V (Y, get in/out of a vehicle) flips between them. Games don't tell the page whether you're in a car, so if it gets out of step press G. The corner badge shows which one you're in.
+
+| Controller | On foot | Driving |
+|---|---|---|
+| Left stick | W A S D (Ctrl to walk) | A / D steer |
+| RT | Left click or L | W, left click or L |
+| LT | Right click or K | S, right click or K |
+| Right stick | Mouse / trackpad | Mouse / trackpad |
+| A | Space, Shift or E | Shift or E |
+| RB | F | Space (handbrake) or F |
+| B | C or Backspace | same |
+| X / Y | R / V | same |
+| LB | Q | same |
+| L3 / R3 | X / Z | same |
+| D-pad | Arrow keys | same |
+| View / Menu | Tab / Enter | same |
+| Guide | Home | same |
+
+Keys ramp up over about 100ms instead of snapping to full, so steering and throttle feel less twitchy. K and L are there for trackpad users who can't right-click and move at the same time.
+
+| Key | Does |
+|---|---|
+| F1 | Controls guide |
+| F2 | Keyboard and mouse on/off |
+| G | Switch on foot / driving |
+| F3 | Settings |
+| F5 | Reload |
+| F11 | Fullscreen |
+| Esc | Release the mouse |
+
+A real controller works too, it's passed straight through.
+
+F3 has mouse sensitivity, a trackpad boost (multiplies small movements), linear or smooth mouse curve, key smoothing (0 = instant), invert Y, auto-switch on V, and the mode badge. They're saved in the app. `XBOXPLAY_SENS=1.5 xboxplay` also sets the sensitivity.
+
+## Better xCloud
+
+On the old `www.xbox.com/play` site the app also loads [Better xCloud](https://github.com/redphx/better-xcloud) (pinned to v6.7.13, checked against a SHA-256 before it runs). It doesn't work on the new `play.xbox.com` site yet, which is why the built-in keyboard and mouse exists. You can turn Better xCloud off in F3, or with `XBOXPLAY_BX=0`.
+
+## Known issues
+
+- Xbox is moving people to the new `play.xbox.com` site. Right after that redirect it sometimes shows "Bad Request". The app retries; if it's still stuck press F5. To go back to the old site: sign in, click your profile picture, Exit preview.
+- If the stream sits on "connecting" forever, try `XBOXPLAY_SAFE=1 xboxplay` (turns off GPU acceleration). Also check whether a VPN or Tailscale is up.
+- The mouse goes through a virtual stick, so aiming feels like a controller with a very fast thumb. Tune the sensitivity and curve in F3.
+- Auto-switch only knows you pressed V, not whether you actually got in. If you press V and nothing happens in game, press G to put it back.
+- Only tested on Debian-based distros with X11. Wayland should work but I haven't tried much.
+
+## Uninstall
+
+```bash
+bash ~/xboxplay/uninstall.sh          # keeps your login
+bash ~/xboxplay/uninstall.sh --purge  # also deletes ~/.config/XboxPlay
+```
+
+## Security notes
+
+- The window only navigates to Microsoft/Xbox sign-in and play domains (`src/config.js`). Other links open in your normal browser.
+- Renderer is sandboxed with context isolation, no Node integration, no webviews. Devtools are off unless you set `XBOXPLAY_DEBUG=1`.
+- Only pointer lock, fullscreen, keyboard lock, mic/camera and clipboard write are granted, and only to those domains.
+- No telemetry of its own. Logs never include URLs' query strings.
+- Your login lives in `~/.config/XboxPlay` like any browser profile.
+
+Found something? See [SECURITY.md](SECURITY.md).
+
+## License
+
+MIT

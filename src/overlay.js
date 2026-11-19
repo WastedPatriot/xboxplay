@@ -1,0 +1,153 @@
+// XboxPlay overlay: F1 controls guide, F3 settings, toasts. Runs in the page's main world.
+// Built with DOM APIs only (no innerHTML) inside a closed shadow root so the page can't restyle it.
+(() => {
+  if (window.__xboxplayUI) return;
+  const LS = window.localStorage;
+  const CSS = `
+    :host { all: initial; }
+    .wrap { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; z-index: 2147483647;
+      background: rgba(0,0,0,.35); opacity: 0; transition: opacity .18s ease; font-family: "Segoe UI", Inter, system-ui, sans-serif; }
+    .wrap.show { opacity: 1; }
+    .card { min-width: 560px; max-width: 760px; color: #e8e8e8; padding: 22px 26px 18px; border-radius: 16px;
+      background: rgba(18,20,22,.82); backdrop-filter: blur(18px) saturate(140%); border: 1px solid rgba(255,255,255,.08);
+      box-shadow: 0 20px 60px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.05); transform: translateY(6px); transition: transform .18s ease; }
+    .wrap.show .card { transform: none; }
+    h1 { font-size: 17px; font-weight: 600; margin: 0 0 4px; color: #fff; display: flex; align-items: center; gap: 10px; }
+    h1::before { content: ""; width: 10px; height: 10px; border-radius: 50%; background: #3ddc5b; box-shadow: 0 0 10px #3ddc5b; }
+    .sub { font-size: 12.5px; color: #9aa0a6; margin: 0 0 16px; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 22px; }
+    section h2 { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: #3ddc5b; margin: 0 0 8px; font-weight: 600; }
+    .row { display: flex; justify-content: space-between; align-items: center; gap: 12px; font-size: 13.5px; padding: 3px 0; }
+    .row span:first-child { color: #c9cdd1; white-space: nowrap; }
+    .keys { display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
+    kbd { font: 600 11.5px/1 ui-monospace, "JetBrains Mono", monospace; color: #f2f2f2; padding: 5px 7px; min-width: 14px; text-align: center;
+      border-radius: 6px; background: linear-gradient(#2c2f33, #222427); border: 1px solid #3a3d42; border-bottom-width: 2px; }
+    .or { color: #6b7075; font-size: 11px; align-self: center; }
+    .foot { margin-top: 16px; font-size: 12px; color: #8a9096; display: flex; justify-content: space-between; }
+    .status { color: #3ddc5b; } .status.off { color: #e06c6c; }
+    label.set { display: flex; justify-content: space-between; align-items: center; font-size: 14px; padding: 10px 0; border-bottom: 1px solid rgba(255,255,255,.06); }
+    input[type=range] { width: 220px; accent-color: #3ddc5b; }
+    input[type=checkbox] { width: 18px; height: 18px; accent-color: #3ddc5b; }
+    .val { font: 600 12px ui-monospace, monospace; color: #3ddc5b; width: 40px; text-align: right; }
+    .toast { position: fixed; left: 50%; bottom: 42px; transform: translate(-50%, 10px); z-index: 2147483647; opacity: 0;
+      transition: opacity .2s, transform .2s; padding: 10px 16px 10px 14px; border-radius: 10px; color: #f0f0f0; font: 500 14px "Segoe UI", system-ui, sans-serif;
+      background: rgba(18,20,22,.9); border: 1px solid rgba(61,220,91,.35); box-shadow: 0 10px 30px rgba(0,0,0,.5); display: flex; gap: 10px; align-items: center; }
+    .toast::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: #3ddc5b; }
+    .toast.show { opacity: 1; transform: translate(-50%, 0); }
+    .grid.three { grid-template-columns: 1fr 1fr 1fr; } .card.wide { max-width: 980px; }
+    .badge { position: fixed; top: 14px; left: 14px; z-index: 2147483646; display: flex; align-items: center; gap: 6px; padding: 5px 9px;
+      border-radius: 8px; background: rgba(18,20,22,.6); border: 1px solid rgba(255,255,255,.08); color: #cfd3d6;
+      font: 600 11px "Segoe UI", system-ui, sans-serif; letter-spacing: .04em; pointer-events: none; opacity: .75; }
+    .badge svg { width: 15px; height: 15px; fill: #3ddc5b; }
+    select { background: #222427; color: #eee; border: 1px solid #3a3d42; border-radius: 6px; padding: 4px 6px; font: inherit; }`;
+
+  let host, root, panel = null, toastTimer;
+  function mount() {
+    if (host && host.isConnected) return;
+    host = document.createElement('xboxplay-ui');
+    root = host.attachShadow({ mode: 'closed' });
+    try { const sheet = new CSSStyleSheet(); sheet.replaceSync(CSS); root.adoptedStyleSheets = [sheet]; }
+    catch { const st = document.createElement('style'); st.textContent = CSS; root.appendChild(st); }
+    document.documentElement.appendChild(host);
+  }
+  function el(tag, attrs, ...kids) {
+    const n = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs || {})) { if (k === 'class') n.className = v; else if (k.startsWith('on')) n.addEventListener(k.slice(2), v); else n.setAttribute(k, v); }
+    for (const c of kids.flat(Infinity)) n.append(c instanceof Node ? c : document.createTextNode(String(c)));
+    return n;
+  }
+  const keys = (...groups) => el('div', { class: 'keys' }, groups.map((g, i) => [i ? el('span', { class: 'or' }, 'or') : [], g.split(' ').map(k => el('kbd', null, k))]));
+  const row = (label, ...groups) => el('div', { class: 'row' }, el('span', null, label), keys(...groups));
+  const sec = (title, ...rows) => el('section', null, el('h2', null, title), ...rows);
+
+  function close() { if (!panel) return; const p = panel; panel = null; p.classList.remove('show'); setTimeout(() => p.remove(), 180); }
+  function open(kind, build) {
+    mount(); const was = panel && panel.dataset.kind; close(); if (was === kind) return;
+    const wrap = el('div', { class: 'wrap', onclick: e => { if (e.target === wrap) close(); } }, build());
+    wrap.dataset.kind = kind; root.appendChild(wrap); panel = wrap;
+    if (document.pointerLockElement) document.exitPointerLock();
+    requestAnimationFrame(() => wrap.classList.add('show'));
+  }
+  const mkbOn = () => !!(window.__xboxplayMKB && window.__xboxplayMKB.enabled);
+
+  function guide() {
+    open('guide', () => el('div', { class: 'card wide' },
+      el('h1', null, 'XboxPlay controls'),
+      el('p', { class: 'sub' }, 'Click the stream to capture the mouse, Esc lets it go. V switches between on foot and driving (G if it gets out of step).'),
+      el('div', { class: 'grid three' },
+        sec('On foot', row('Move', 'W A S D'), row('Walk slowly', 'Ctrl'), row('Look', 'Mouse'), row('Aim (LT)', 'RMB', 'K'), row('Shoot (RT)', 'LMB', 'L'),
+          row('Jump / A', 'Space'), row('Sprint / A', 'Shift', 'E')),
+        sec('Driving', row('Accelerate (RT)', 'W', 'LMB', 'L'), row('Brake / reverse (LT)', 'S', 'RMB', 'K'), row('Steer', 'A D'),
+          row('Handbrake (RB)', 'Space'), row('A', 'Shift', 'E'), row('Camera', 'Mouse')),
+        sec('Shared', row('Enter / exit vehicle (Y)', 'V'), row('Switch layout', 'G'), row('B', 'C', 'Backspace'), row('X', 'R'),
+          row('LB / RB', 'Q', 'F'), row('L3 / R3', 'X', 'Z'), row('D-pad', '↑ ↓ ← →'), row('View / Menu', 'Tab', 'Enter'), row('Guide', 'Home'))),
+      el('div', { class: 'grid', style: 'margin-top:14px' },
+        sec('App', row('This guide', 'F1'), row('Keyboard & mouse on/off', 'F2'), row('Settings', 'F3')),
+        sec('\u00a0', row('Reload', 'F5'), row('Fullscreen', 'F11'), row('Release mouse', 'Esc'))),
+      el('div', { class: 'foot' },
+        el('span', { class: 'status' + (mkbOn() ? '' : ' off') }, mkbOn() ? '● Keyboard & mouse on · ' + (window.__xboxplayMKB.mode === 'drive' ? 'driving' : 'on foot') : '● Keyboard & mouse off'),
+        el('span', null, 'F1 or Esc to close'))));
+  }
+
+  function settings() {
+    open('settings', () => {
+      const slider = (key, label, min, max, step, def, fmt) => {
+        const cur = parseFloat(LS.getItem('xboxplay.' + key)); const v = Number.isFinite(cur) ? cur : def;
+        const val = el('span', { class: 'val' }, fmt(v));
+        const inp = el('input', { type: 'range', min: String(min), max: String(max), step: String(step), value: String(v),
+          oninput: e => { val.textContent = fmt(+e.target.value); LS.setItem('xboxplay.' + key, e.target.value); } });
+        return el('label', { class: 'set' }, el('span', null, label), el('span', null, inp, ' ', val));
+      };
+      const toggle = (key, label, def, after) => {
+        const c = el('input', { type: 'checkbox', onchange: e => { LS.setItem('xboxplay.' + key, e.target.checked ? '1' : '0'); if (after) after(e.target.checked); } });
+        c.checked = (LS.getItem('xboxplay.' + key) || def) === '1';
+        return el('label', { class: 'set' }, el('span', null, label), c);
+      };
+      const curve = el('select', { onchange: e => LS.setItem('xboxplay.curve', e.target.value) },
+        el('option', { value: 'linear' }, 'Linear'), el('option', { value: 'smooth' }, 'Smooth'));
+      curve.value = LS.getItem('xboxplay.curve') || 'linear';
+      const sensDef = parseFloat(window.__XBOXPLAY_SENS) || 1;
+      const check = (key, on, fn) => { const c = el('input', { type: 'checkbox', onchange: e => fn(e.target.checked) }); c.checked = on; return c; };
+      const refresh = () => window.__xboxplayMKB && window.__xboxplayMKB.refreshBadge();
+      return el('div', { class: 'card' },
+        el('h1', null, 'Settings'),
+        el('p', { class: 'sub' }, 'Saved on this computer. Changes apply straight away.'),
+        slider('sens', 'Mouse sensitivity', 0.2, 4, 0.1, sensDef, v => v.toFixed(1)),
+        slider('trackpad', 'Trackpad boost (small movements)', 1, 4, 0.1, 1, v => v.toFixed(1) + '×'),
+        el('label', { class: 'set' }, el('span', null, 'Mouse curve'), curve),
+        slider('smooth', 'Key smoothing (0 = instant)', 0, 250, 10, 100, v => v + 'ms'),
+        toggle('invertY', 'Invert Y axis', '0'),
+        toggle('autoSwitch', 'Auto-switch on foot / driving when V is pressed', '1'),
+        toggle('badge', 'Show mode badge', '1', refresh),
+        el('label', { class: 'set' }, el('span', null, 'Built-in keyboard & mouse'),
+          check('mkb', mkbOn(), on => window.__xboxplayMKB && window.__xboxplayMKB.set(on))),
+        toggle('bx', 'Better xCloud on xbox.com/play (needs reload)', '1'),
+        el('div', { class: 'foot' }, el('span', null, ''), el('span', null, 'F3 or Esc to close')));
+    });
+  }
+
+  function toast(text) {
+    mount(); const t = el('div', { class: 'toast' }, text); root.appendChild(t);
+    requestAnimationFrame(() => t.classList.add('show'));
+    clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.classList.remove('show'); setTimeout(() => t.remove(), 250); }, 2400);
+  }
+
+  // Small corner badge showing the current layout (null hides it).
+  let badgeEl = null;
+  const ICONS = {
+    drive: 'M5 11l1.5-4.5A2 2 0 018.4 5h7.2a2 2 0 011.9 1.5L19 11a2 2 0 012 2v4h-2v2h-3v-2H8v2H5v-2H3v-4a2 2 0 012-2zm2.1 0h9.8l-1-3H8.1l-1 3zM6.5 15a1.5 1.5 0 100-3 1.5 1.5 0 000 3zm11 0a1.5 1.5 0 100-3 1.5 1.5 0 000 3z',
+    foot: 'M13.5 5.5a2 2 0 100-4 2 2 0 000 4zM9.8 8.9L7 23h2.1l1.8-8 2.1 2v6h2v-7.5l-2.1-2 .6-3A7.3 7.3 0 0019 13v-2a5 5 0 01-4.3-2.4l-1-1.6a2 2 0 00-1.7-1 2 2 0 00-.8.2L6 8.3V13h2V9.6l1.8-.7',
+  };
+  function badge(mode) {
+    if (!document.documentElement) return;
+    mount();
+    if (!mode) { if (badgeEl) badgeEl.remove(); badgeEl = null; return; }
+    if (!badgeEl) { badgeEl = el('div', { class: 'badge' }); root.appendChild(badgeEl); }
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); svg.setAttribute('viewBox', '0 0 24 24');
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path'); path.setAttribute('d', ICONS[mode] || ICONS.foot); svg.appendChild(path);
+    badgeEl.replaceChildren(svg, document.createTextNode(mode === 'drive' ? 'DRIVING' : 'ON FOOT'));
+  }
+
+  window.addEventListener('keydown', e => { if (e.code === 'Escape' && panel) { close(); e.preventDefault(); } }, true);
+  window.__xboxplayUI = Object.freeze({ guide, settings, toast, badge, close, isOpen: () => !!panel });
+})();
