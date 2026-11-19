@@ -34,10 +34,11 @@ The phone in GTA opens with the up arrow. While it's open, the mouse look pauses
 | RT | Left click or L | W, left click or L |
 | LT | Right click or K | S, right click or K |
 | Right stick | Mouse / trackpad | Mouse / trackpad |
-| A | Space, Shift or E | Shift or E |
+| A | E, or hold Shift to sprint (it taps A for you) | Shift or E |
 | RB | F | Space (handbrake) or F |
-| B | C or Backspace | same |
-| X / Y | R / V | same |
+| B | R (reload), C or Backspace | C or Backspace |
+| X | Space (jump) | R |
+| Y | V | same |
 | LB | Q | same |
 | L3 / R3 | X / Z | same |
 | D-pad | Arrow keys (up also opens the phone) | same |

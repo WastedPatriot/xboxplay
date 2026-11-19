@@ -239,6 +239,24 @@ function key(ctx, type, code, extra) { return ctx._fire(type, { code, repeat: fa
     check(!!ctx._doc.pointerLockElement, 'requestPointerLock falls back when unadjustedMovement throws');
   }
 
+  // --- Small trackpad move clears the game deadzone; Shift taps A; Space jumps ---
+  {
+    const { ctx, M, gp } = load();
+    ctx._fire('mousemove', { movementX: 1, movementY: 0, timeStamp: 11 });
+    await sleep(12);
+    check(gp().axes[2] >= 0.2, 'a 1px trackpad move gets past the stick deadzone, got ' + gp().axes[2]);
+    await sleep(200);
+    check(gp().axes[2] === 0, 'look stick returns to centre after the move');
+    key(ctx, 'keydown', 'ShiftLeft');
+    let a = new Set();
+    for (let i = 0; i < 12; i++) { a.add(gp().buttons[0].pressed); await sleep(25); }
+    check(a.has(true) && a.has(false), 'holding Shift taps A to sprint');
+    key(ctx, 'keyup', 'ShiftLeft');
+    key(ctx, 'keydown', 'Space');
+    check(gp().buttons[2].pressed && !gp().buttons[0].pressed, 'Space is X (jump) on foot');
+    key(ctx, 'keyup', 'Space');
+  }
+
   if (failed) {
     console.log(failed + ' failed');
     process.exit(1);

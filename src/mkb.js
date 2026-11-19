@@ -11,11 +11,11 @@
   const debug = (...a) => { if (window.__XBOXPLAY_DEBUG) console.log('[XboxPlay]', ...a); };
 
   // Standard mapping: 0 A, 1 B, 2 X, 3 Y, 4 LB, 5 RB, 6 LT, 7 RT, 8 View, 9 Menu, 10 L3, 11 R3, 12-15 D-pad, 16 Guide
-  const SHARED = { KeyE: 0, ShiftLeft: 0, ShiftRight: 0, KeyC: 1, Backspace: 1, KeyR: 2, KeyV: 3, KeyQ: 4, KeyF: 5,
+  const SHARED = { KeyE: 0, KeyC: 1, Backspace: 1, KeyV: 3, KeyQ: 4, KeyF: 5,
     Tab: 8, Enter: 9, KeyX: 10, KeyZ: 11, ArrowUp: 12, ArrowDown: 13, ArrowLeft: 14, ArrowRight: 15, Home: 16 };
-  const FOOT = { ...SHARED, Space: 0 };
-  const DRIVE = { ...SHARED, Space: 5 };
-  const MOVE = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyK', 'KeyL', 'KeyG', 'ControlLeft', 'ControlRight']);
+  const FOOT = { ...SHARED, Space: 2, KeyR: 1 };             // Shift = sprint (A tapped), see pad()
+  const DRIVE = { ...SHARED, Space: 5, KeyR: 2, ShiftLeft: 0, ShiftRight: 0 };
+  const MOVE = new Set(['ShiftLeft', 'ShiftRight', 'KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyK', 'KeyL', 'KeyG', 'ControlLeft', 'ControlRight']);
   const V_MIN = 60, V_HOLD = 400, SWITCH_DEBOUNCE = 500;
 
   const held = new Set(), mouse = new Set();
@@ -107,11 +107,17 @@
       // Mouse/trackpad -> right stick with a short decay, so swipes feel continuous.
       const s = num('sens', parseFloat(window.__XBOXPLAY_SENS) || 2) * 0.04, inv = get('invertY', '0') === '1' ? -1 : 1;
       const curve = v => get('curve', 'linear') === 'smooth' ? Math.sign(v) * Math.pow(Math.min(1, Math.abs(v)), 0.6) : v;
-      const nx = clamp(curve(accX * s)), ny = clamp(curve(accY * s) * inv);
+      let nx = clamp(curve(accX * s)), ny = clamp(curve(accY * s) * inv);
+      // Push small values past the game's stick deadzone, otherwise slow trackpad moves do nothing.
+      const mag = Math.hypot(nx, ny), ad = num('antidz', 0.22);
+      if (mag > 0.002) { const k = Math.min(1, ad + (1 - ad) * Math.min(1, mag)) / mag; nx = clamp(nx * k); ny = clamp(ny * k); }
+      else { nx = 0; ny = 0; }
       if (nx !== rx || ny !== ry) ts = now;
-      rx = nx; ry = ny; accX *= 0.6; accY *= 0.6;
+      // Decay by time (about 45ms) rather than per tick, so it doesn't flicker between game frames.
+      const d = Math.exp(-Math.max(1, dt) / 45);
+      rx = nx; ry = ny; accX *= d; accY *= d;
       // No aim deadzone: only drop true float dust so tiny trackpad deltas still add up.
-      if (Math.abs(accX) < 1e-6) accX = 0; if (Math.abs(accY) < 1e-6) accY = 0;
+      if (Math.abs(accX) < 0.05) accX = 0; if (Math.abs(accY) < 0.05) accY = 0;
     }
   }
   setInterval(tick, 8);
@@ -119,6 +125,10 @@
   function pad(index) {
     const map = M.mode === 'drive' ? DRIVE : FOOT, on = new Array(17).fill(0);
     for (const c of held) if (c in map) on[map[c]] = 1;
+    // Sprint: GTA wants A tapped, so holding Shift taps A about 8 times a second.
+    if (M.mode === 'foot' && !M.phone && (held.has('ShiftLeft') || held.has('ShiftRight')) && get('sprintTap', '1') === '1')
+      on[0] = Math.floor(performance.now() / 60) % 2 === 0 ? 1 : on[0];
+    else if (M.mode === 'foot' && (held.has('ShiftLeft') || held.has('ShiftRight'))) on[0] = 1;
     if (M.phone) {
       if (mouse.has(0)) on[0] = 1;
       if (mouse.has(2)) on[1] = 1;
