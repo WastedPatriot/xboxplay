@@ -171,6 +171,25 @@
   function announce() { if (announced) return; announced = true; try { const e = new Event('gamepadconnected');
     Object.defineProperty(e, 'gamepad', { value: pad(slot) }); window.dispatchEvent(e); } catch (e) {} }
 
+  // The stream is a <video> on www.xbox.com, but the new play.xbox.com can draw it on a <canvas> or inside a
+  // shadow root. Treat a click on any big video/canvas (or anywhere while one is playing) as a click on the stream.
+  function findMedia(root, out) {
+    try {
+      root.querySelectorAll('video, canvas').forEach(el => out.push(el));
+      root.querySelectorAll('*').forEach(el => { if (el.shadowRoot) findMedia(el.shadowRoot, out); });
+    } catch (e) {}
+    return out;
+  }
+  function big(el) {
+    try { const r = el.getBoundingClientRect(); return r.width * r.height > 0.35 * innerWidth * innerHeight; } catch (e) { return false; }
+  }
+  function streamTarget(e) {
+    const path = (e.composedPath && e.composedPath()) || [e.target];
+    if (path.some(n => n && n.tagName === 'XBOXPLAY-UI')) return null;
+    const hit = path.find(n => n && (n.tagName === 'VIDEO' || n.tagName === 'CANVAS') && big(n));
+    if (hit) return hit;
+    return findMedia(document, []).find(el => big(el) && (el.tagName === 'CANVAS' || el.readyState >= 2)) || null;
+  }
   function unmuteMedia() {
     try { document.querySelectorAll('video, audio').forEach(el => { el.muted = false; const p = el.play && el.play(); if (p && p.catch) p.catch(() => {}); }); }
     catch (e) {}
@@ -266,8 +285,13 @@
   on('pointermove', e => { if (!hasRaw) applyMove(e); });
   on('mousemove', e => { if (!hasRaw) applyMove(e); });
   on('mousedown', e => {
-    if (M.enabled && !document.pointerLockElement && [...document.querySelectorAll('video')].some(v => v.readyState >= 2)) {
-      const lockEl = [document.querySelector('video'), document.body, document.documentElement]
+    const streamEl = M.enabled && !document.pointerLockElement && streamTarget(e);
+    if (window.__XBOXPLAY_DEBUG && M.enabled && !document.pointerLockElement) {
+      const t = (e.composedPath && e.composedPath()[0]) || e.target;
+      debug('click on ' + (t && t.tagName) + ', stream element ' + (streamEl ? streamEl.tagName : 'not found'));
+    }
+    if (streamEl) {
+      const lockEl = [streamEl, document.body, document.documentElement]
         .find(el => el && typeof el.requestPointerLock === 'function');
       if (lockEl) lockPointer(lockEl);
       announce(); badge(); eat(e); return;

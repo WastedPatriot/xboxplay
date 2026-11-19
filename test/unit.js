@@ -31,7 +31,7 @@ function makeEnv() {
     return ev;
   };
   const store = {};
-  const videos = [{ readyState: 4, muted: true, play: () => Promise.resolve() }];
+  const videos = [{ tagName: 'VIDEO', getBoundingClientRect: () => ({ width: 1280, height: 720 }), readyState: 4, muted: true, play: () => Promise.resolve() }];
   let pointerLockElement = null;
   const body = {
     requestPointerLock(opts) {
@@ -70,7 +70,7 @@ function makeEnv() {
   const ctx = {
     window: windowObj, document, navigator, Navigator, Gamepad, Event, console,
     setTimeout, clearTimeout, setInterval, clearInterval, performance,
-    Object, Array, Math, Number, String, Set, Map, Error, TypeError, JSON, parseFloat,
+    Object, Array, Math, Number, String, Set, Map, Error, TypeError, JSON, parseFloat, innerWidth: 1280, innerHeight: 800,
   };
   ctx._fire = (type, ev) => fire('window', type, ev);
   ctx._fireDoc = (type, ev) => fire('document', type, ev);
