@@ -31,7 +31,7 @@ function makeEnv() {
     return ev;
   };
   const store = {};
-  const videos = [{ tagName: 'VIDEO', getBoundingClientRect: () => ({ width: 1280, height: 720 }), readyState: 4, muted: true, play: () => Promise.resolve() }];
+  const videos = [{ tagName: 'VIDEO', getBoundingClientRect: () => ({ width: 1280, height: 720 }), readyState: 4, srcObject: { active: true }, muted: true, play: () => Promise.resolve() }];
   let pointerLockElement = null;
   const body = {
     requestPointerLock(opts) {

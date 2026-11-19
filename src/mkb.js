@@ -161,7 +161,9 @@
   let slot = 0;
   Navigator.prototype.getGamepads = function () {
     const real = Array.from(origGP.call(this) || []);
-    if (!M.enabled) return real;
+    // Turning the layer off keeps a neutral pad plugged in (unless a real controller is there), so the game
+    // doesn't throw a controller-disconnected error.
+    if (!M.enabled && (!announced || real.some(Boolean))) return real;
     slot = real.findIndex(p => !p); if (slot < 0) slot = real.length;
     while (real.length < 4) real.push(null);
     real[slot] = pad(slot); gpCalls++; return real;
@@ -183,12 +185,24 @@
   function big(el) {
     try { const r = el.getBoundingClientRect(); return r.width * r.height > 0.35 * innerWidth * innerHeight; } catch (e) { return false; }
   }
+  // Only treat it as the game once a stream is really running: a live WebRTC connection or a live MediaStream
+  // on a video. Home page trailers and store videos don't count.
+  const peers = new Set();
+  try {
+    const PC = window.RTCPeerConnection;
+    if (PC) window.RTCPeerConnection = new Proxy(PC, { construct(t, args) { const pc = Reflect.construct(t, args); peers.add(pc); return pc; } });
+  } catch (e) {}
+  function streaming() {
+    for (const pc of peers) { try { if (pc.connectionState === 'connected' || pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') return true; if (pc.connectionState === 'closed') peers.delete(pc); } catch (e) {} }
+    return findMedia(document, []).some(v => v.tagName === 'VIDEO' && v.srcObject && v.srcObject.active);
+  }
   function streamTarget(e) {
+    if (!streaming()) return null;
     const path = (e.composedPath && e.composedPath()) || [e.target];
     if (path.some(n => n && n.tagName === 'XBOXPLAY-UI')) return null;
     const hit = path.find(n => n && (n.tagName === 'VIDEO' || n.tagName === 'CANVAS') && big(n));
     if (hit) return hit;
-    return findMedia(document, []).find(el => big(el) && (el.tagName === 'CANVAS' || el.readyState >= 2)) || null;
+    return findMedia(document, []).find(el => big(el) && (el.tagName === 'CANVAS' || el.readyState >= 2)) || document.body;
   }
   function unmuteMedia() {
     try { document.querySelectorAll('video, audio').forEach(el => { el.muted = false; const p = el.play && el.play(); if (p && p.catch) p.catch(() => {}); }); }
