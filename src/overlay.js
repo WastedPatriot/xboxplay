@@ -73,7 +73,7 @@
   function guide() {
     open('guide', () => el('div', { class: 'card wide' },
       el('h1', null, 'XboxPlay controls'),
-      el('p', { class: 'sub' }, 'Click the stream to capture the mouse, Esc lets it go. V switches between on foot and driving (G if it gets out of step).'),
+      el('p', { class: 'sub' }, 'Click the stream to capture the mouse, Esc lets it go. A short tap of V (Y) switches between on foot and driving; a hold is just Y. G if it gets out of step. Up arrow opens the phone.'),
       el('div', { class: 'grid three' },
         sec('On foot', row('Move', 'W A S D'), row('Walk slowly', 'Ctrl'), row('Look', 'Mouse'), row('Aim (LT)', 'RMB', 'K'), row('Shoot (RT)', 'LMB', 'L'),
           row('Jump / A', 'Space'), row('Sprint / A', 'Shift', 'E')),
@@ -82,8 +82,9 @@
         sec('Shared', row('Enter / exit vehicle (Y)', 'V'), row('Switch layout', 'G'), row('B', 'C', 'Backspace'), row('X', 'R'),
           row('LB / RB', 'Q', 'F'), row('L3 / R3', 'X', 'Z'), row('D-pad', '↑ ↓ ← →'), row('View / Menu', 'Tab', 'Enter'), row('Guide', 'Home'))),
       el('div', { class: 'grid', style: 'margin-top:14px' },
-        sec('App', row('This guide', 'F1'), row('Keyboard & mouse on/off', 'F2'), row('Settings', 'F3')),
-        sec('\u00a0', row('Reload', 'F5'), row('Fullscreen', 'F11'), row('Release mouse', 'Esc'))),
+        sec('Phone', row('Open', '↑'), row('Scroll', 'Wheel'), row('Select (A)', 'LMB'), row('Close (B)', 'RMB', 'C', 'Backspace')),
+        sec('App', row('This guide', 'F1'), row('Keyboard & mouse on/off', 'F2'), row('Settings', 'F3'),
+          row('Reload', 'F5'), row('Fullscreen', 'F11'), row('Release mouse', 'Esc'))),
       el('div', { class: 'foot' },
         el('span', { class: 'status' + (mkbOn() ? '' : ' off') }, mkbOn() ? '● Keyboard & mouse on · ' + (window.__xboxplayMKB.mode === 'drive' ? 'driving' : 'on foot') : '● Keyboard & mouse off'),
         el('span', null, 'F1 or Esc to close'))));
@@ -106,18 +107,18 @@
       const curve = el('select', { onchange: e => LS.setItem('xboxplay.curve', e.target.value) },
         el('option', { value: 'linear' }, 'Linear'), el('option', { value: 'smooth' }, 'Smooth'));
       curve.value = LS.getItem('xboxplay.curve') || 'linear';
-      const sensDef = parseFloat(window.__XBOXPLAY_SENS) || 1;
+      const sensDef = parseFloat(window.__XBOXPLAY_SENS) || 2;
       const check = (key, on, fn) => { const c = el('input', { type: 'checkbox', onchange: e => fn(e.target.checked) }); c.checked = on; return c; };
       const refresh = () => window.__xboxplayMKB && window.__xboxplayMKB.refreshBadge();
       return el('div', { class: 'card' },
         el('h1', null, 'Settings'),
         el('p', { class: 'sub' }, 'Saved on this computer. Changes apply straight away.'),
-        slider('sens', 'Mouse sensitivity', 0.2, 4, 0.1, sensDef, v => v.toFixed(1)),
-        slider('trackpad', 'Trackpad boost (small movements)', 1, 4, 0.1, 1, v => v.toFixed(1) + '×'),
+        slider('sens', 'Mouse sensitivity', 0.2, 8, 0.1, sensDef, v => v.toFixed(1)),
+        slider('trackpad', 'Trackpad boost (small movements)', 1, 6, 0.1, 2.5, v => v.toFixed(1) + '×'),
         el('label', { class: 'set' }, el('span', null, 'Mouse curve'), curve),
         slider('smooth', 'Key smoothing (0 = instant)', 0, 250, 10, 100, v => v + 'ms'),
         toggle('invertY', 'Invert Y axis', '0'),
-        toggle('autoSwitch', 'Auto-switch on foot / driving when V is pressed', '1'),
+        toggle('autoSwitch', 'Auto-switch on foot / driving on a short V tap', '1'),
         toggle('badge', 'Show mode badge', '1', refresh),
         el('label', { class: 'set' }, el('span', null, 'Built-in keyboard & mouse'),
           check('mkb', mkbOn(), on => window.__xboxplayMKB && window.__xboxplayMKB.set(on))),
@@ -137,6 +138,7 @@
   const ICONS = {
     drive: 'M5 11l1.5-4.5A2 2 0 018.4 5h7.2a2 2 0 011.9 1.5L19 11a2 2 0 012 2v4h-2v2h-3v-2H8v2H5v-2H3v-4a2 2 0 012-2zm2.1 0h9.8l-1-3H8.1l-1 3zM6.5 15a1.5 1.5 0 100-3 1.5 1.5 0 000 3zm11 0a1.5 1.5 0 100-3 1.5 1.5 0 000 3z',
     foot: 'M13.5 5.5a2 2 0 100-4 2 2 0 000 4zM9.8 8.9L7 23h2.1l1.8-8 2.1 2v6h2v-7.5l-2.1-2 .6-3A7.3 7.3 0 0019 13v-2a5 5 0 01-4.3-2.4l-1-1.6a2 2 0 00-1.7-1 2 2 0 00-.8.2L6 8.3V13h2V9.6l1.8-.7',
+    phone: 'M7 2h10a2 2 0 012 2v16a2 2 0 01-2 2H7a2 2 0 01-2-2V4a2 2 0 012-2zm5 18.2a1.2 1.2 0 100-2.4 1.2 1.2 0 000 2.4zM8 4h8v13H8V4z',
   };
   function badge(mode) {
     if (!document.documentElement) return;
@@ -145,7 +147,7 @@
     if (!badgeEl) { badgeEl = el('div', { class: 'badge' }); root.appendChild(badgeEl); }
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); svg.setAttribute('viewBox', '0 0 24 24');
     const path = document.createElementNS('http://www.w3.org/2000/svg', 'path'); path.setAttribute('d', ICONS[mode] || ICONS.foot); svg.appendChild(path);
-    badgeEl.replaceChildren(svg, document.createTextNode(mode === 'drive' ? 'DRIVING' : 'ON FOOT'));
+    badgeEl.replaceChildren(svg, document.createTextNode(mode === 'drive' ? 'DRIVING' : mode === 'phone' ? 'PHONE' : 'ON FOOT'));
   }
 
   window.addEventListener('keydown', e => { if (e.code === 'Escape' && panel) { close(); e.preventDefault(); } }, true);

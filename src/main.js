@@ -28,6 +28,7 @@ const read = f => fs.readFileSync(path.join(__dirname, f), 'utf8');
 const OWN_SCRIPTS = [{ name: 'overlay', code: read('overlay.js') }, { name: 'mkb', code: read('mkb.js') }];
 const sens = parseFloat(process.env.XBOXPLAY_SENS);
 if (sens > 0) OWN_SCRIPTS.unshift({ name: 'sens', code: `window.__XBOXPLAY_SENS=${JSON.stringify(String(sens))}` });
+if (DEBUG) OWN_SCRIPTS.unshift({ name: 'debug', code: 'window.__XBOXPLAY_DEBUG=1' });
 
 const BX_FILE = () => path.join(app.getPath('userData'), `better-xcloud-${BX.version}.user.js`);
 const sha256 = s => crypto.createHash('sha256').update(s).digest('hex');
@@ -102,6 +103,7 @@ function createWindow() {
   });
   win.setMenuBarVisibility(false);
   const wc = win.webContents;
+  wc.setAudioMuted(false);
   lockDown(wc);
 
   const ui = fn => wc.executeJavaScript(`window.__xboxplayUI && window.__xboxplayUI.${fn}()`).catch(() => {});
@@ -128,9 +130,12 @@ function createWindow() {
     }
   });
   let retries = 0;
-  wc.on('did-finish-load', () => setTimeout(() => {
-    if (wc.getURL().includes('play.xbox.com') && /Bad Request|Invalid URL/i.test(wc.getTitle()) && retries++ < 2) wc.loadURL('https://play.xbox.com/');
-  }, 1500));
+  wc.on('did-finish-load', () => {
+    wc.setAudioMuted(false);
+    setTimeout(() => {
+      if (wc.getURL().includes('play.xbox.com') && /Bad Request|Invalid URL/i.test(wc.getTitle()) && retries++ < 2) wc.loadURL('https://play.xbox.com/');
+    }, 1500);
+  });
 
   wc.loadURL(process.env.XBOXPLAY_URL && isAllowedUrl(process.env.XBOXPLAY_URL) ? process.env.XBOXPLAY_URL : START);
   return win;

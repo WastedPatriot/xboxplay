@@ -23,6 +23,7 @@ app.on('browser-window-created', (ev, win) => {
       wc.sendInputEvent({ type: 'keyDown', keyCode: 'F3' }); await sleep(600);
       check(await js('window.__xboxplayUI.isOpen()'), 'F3 settings opens');
       fs.writeFileSync(OUT + '/xboxplay-settings.png', (await wc.capturePage()).toPNG());
+      check(!wc.isAudioMuted(), 'audio is not muted');
       await js('window.__xboxplayUI.close(); window.__xboxplayMKB.enabled = true; window.__xboxplayMKB.forceActive = true; window.__xboxplayMKB.setMode("foot", true)');
       await sleep(300);
       wc.sendInputEvent({ type: 'keyDown', keyCode: 'Space' }); await sleep(100);
@@ -30,9 +31,15 @@ app.on('browser-window-created', (ev, win) => {
       wc.sendInputEvent({ type: 'keyUp', keyCode: 'Space' });
       await sleep(600);   // mode switches are debounced by 0.5s
       wc.sendInputEvent({ type: 'keyDown', keyCode: 'V' }); wc.sendInputEvent({ type: 'keyUp', keyCode: 'V' });
+      await sleep(120);   // Y is held at least 60ms, then a short tap flips the layout
       wc.sendInputEvent({ type: 'keyDown', keyCode: 'W' }); await sleep(300);
-      check(await js(`(() => { const p = [...navigator.getGamepads()].find(g => g && g.id.includes('XInput')); return window.__xboxplayMKB.mode === 'drive' && p.buttons[7].value === 1 && p.axes[1] === 0; })()`), 'V switches to driving, W = full RT');
+      check(await js(`(() => { const p = [...navigator.getGamepads()].find(g => g && g.id.includes('XInput')); const ok = window.__xboxplayMKB.mode === 'drive' && !window.__xboxplayMKB.phone && p.buttons[7].value >= 0.98 && p.axes[1] === 0; if (!ok) console.log('[XboxPlay] smoke V/W', window.__xboxplayMKB.mode, window.__xboxplayMKB.phone, p.buttons[7].value, p.axes[1]); return ok; })()`), 'V switches to driving, W = full RT');
       wc.sendInputEvent({ type: 'keyUp', keyCode: 'W' });
+      wc.sendInputEvent({ type: 'keyDown', keyCode: 'Up' }); await sleep(80);
+      check(await js('window.__xboxplayMKB.phone === true'), 'Up arrow enters phone mode');
+      wc.sendInputEvent({ type: 'keyUp', keyCode: 'Up' });
+      wc.sendInputEvent({ type: 'keyDown', keyCode: 'C' }); wc.sendInputEvent({ type: 'keyUp', keyCode: 'C' }); await sleep(80);
+      check(await js('window.__xboxplayMKB.phone === false'), 'C leaves phone mode');
     } catch (e) { check(false, 'smoke error: ' + e.message); }
     app.exit(failed ? 1 : 0);
   });

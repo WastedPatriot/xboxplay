@@ -8,7 +8,7 @@ const ALLOWED_HOST_SUFFIXES = [
 // Pages where our scripts are injected.
 const INJECT_HOSTS = ['www.xbox.com', 'play.xbox.com'];
 // Permissions granted to allowlisted origins. Everything else is denied.
-const ALLOWED_PERMISSIONS = new Set(['pointerLock', 'fullscreen', 'media', 'keyboardLock', 'clipboard-sanitized-write']);
+const ALLOWED_PERMISSIONS = new Set(['pointerLock', 'fullscreen', 'media', 'speaker-selection', 'keyboardLock', 'clipboard-sanitized-write']);
 
 // Better xCloud (optional, only works on www.xbox.com/play). Pinned release + SHA-256.
 const BX = {
