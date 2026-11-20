@@ -5,21 +5,22 @@
   const LS = window.localStorage;
   const CSS = `
     :host { all: initial; }
-    .wrap { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; z-index: 2147483647;
+    .wrap { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; z-index: 2147483647; overflow: auto;
       background: rgba(0,0,0,.35); opacity: 0; transition: opacity .18s ease; font-family: "Segoe UI", Inter, system-ui, sans-serif; }
     .wrap.show { opacity: 1; }
-    .card { min-width: 560px; max-width: 760px; color: #e8e8e8; padding: 22px 26px 18px; border-radius: 16px;
+    .card { min-width: 560px; max-width: 760px; max-height: calc(100vh - 40px); overflow: auto; color: #e8e8e8; padding: 22px 26px 18px; border-radius: 16px;
       background: rgba(18,20,22,.82); backdrop-filter: blur(18px) saturate(140%); border: 1px solid rgba(255,255,255,.08);
       box-shadow: 0 20px 60px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.05); transform: translateY(6px); transition: transform .18s ease; }
     .wrap.show .card { transform: none; }
     h1 { font-size: 17px; font-weight: 600; margin: 0 0 4px; color: #fff; display: flex; align-items: center; gap: 10px; }
     h1::before { content: ""; width: 10px; height: 10px; border-radius: 50%; background: #3ddc5b; box-shadow: 0 0 10px #3ddc5b; }
     .sub { font-size: 12.5px; color: #9aa0a6; margin: 0 0 16px; }
-    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 22px; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 56px; }
+    .card.wide { min-width: 880px; max-width: 980px; }
     section h2 { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: #3ddc5b; margin: 0 0 8px; font-weight: 600; }
     .row { display: flex; justify-content: space-between; align-items: center; gap: 12px; font-size: 13.5px; padding: 3px 0; }
     .row span:first-child { color: #c9cdd1; white-space: nowrap; }
-    .keys { display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
+    .keys { display: flex; gap: 4px; flex-wrap: nowrap; justify-content: flex-end; }
     kbd { font: 600 11.5px/1 ui-monospace, "JetBrains Mono", monospace; color: #f2f2f2; padding: 5px 7px; min-width: 14px; text-align: center;
       border-radius: 6px; background: linear-gradient(#2c2f33, #222427); border: 1px solid #3a3d42; border-bottom-width: 2px; }
     .or { color: #6b7075; font-size: 11px; align-self: center; }
@@ -34,11 +35,9 @@
       background: rgba(18,20,22,.9); border: 1px solid rgba(61,220,91,.35); box-shadow: 0 10px 30px rgba(0,0,0,.5); display: flex; gap: 10px; align-items: center; }
     .toast::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: #3ddc5b; }
     .toast.show { opacity: 1; transform: translate(-50%, 0); }
-    .grid.three { grid-template-columns: 1fr 1fr 1fr; } .card.wide { max-width: 980px; }
     .badge { position: fixed; top: 14px; left: 14px; z-index: 2147483646; display: flex; align-items: center; gap: 6px; padding: 5px 9px;
       border-radius: 8px; background: rgba(18,20,22,.6); border: 1px solid rgba(255,255,255,.08); color: #cfd3d6;
       font: 600 11px "Segoe UI", system-ui, sans-serif; letter-spacing: .04em; pointer-events: none; opacity: .75; }
-    .badge svg { width: 15px; height: 15px; fill: #3ddc5b; }
     select { background: #222427; color: #eee; border: 1px solid #3a3d42; border-radius: 6px; padding: 4px 6px; font: inherit; }`;
 
   let host, root, panel = null, toastTimer;
@@ -73,22 +72,19 @@
   function guide() {
     open('guide', () => el('div', { class: 'card wide' },
       el('h1', null, 'XboxPlay controls'),
-      el('p', { class: 'sub' }, 'Matches GTA 6 default controls. Click the stream to capture the mouse, Esc lets it go. A short tap of F or V gets in or out of a vehicle and switches the layout; G if it gets out of step.'),
-      el('div', { class: 'grid three' },
-        sec('On foot', row('Move', 'W A S D'), row('Run (L3)', 'Shift'), row('Jump / climb (A)', 'Space'), row('Crouch (B)', 'C', 'Ctrl'),
-          row('Interact / enter (Y)', 'E', 'F', 'V'), row('Melee (X)', 'R'), row('Cover (RB)', 'Q'), row('Loadout (LB)', 'Tab'),
-          row('Aim (LT)', 'RMB', 'K'), row('Shoot (RT)', 'LMB', 'L'), row('Zoom / look back (R3)', 'MMB', 'Z'), row('Focus (L3+R3)', 'T')),
-        sec('Driving', row('Accelerate (RT)', 'W', 'L'), row('Brake / reverse (LT)', 'S', 'RMB', 'K'), row('Steer', 'A D'),
-          row('Handbrake (A)', 'Space'), row('Horn / nitrous (L3)', 'Shift', 'H'), row('Shoot (RB)', 'LMB'), row('Exit (Y)', 'F', 'V', 'E'),
-          row('Duck (B)', 'C', 'Ctrl'), row('Kick / door (X)', 'R'), row('Sidearm (LB)', 'Tab'), row('Yell (R3)', 'MMB', 'Z')),
-        sec('Shared', row('Map (View)', 'M'), row('Pause (Menu)', 'Enter', 'P'), row('Phone', '↑'), row('Show HUD', '↓'),
-          row('Partner / switch', '→'), row('Radio / vehicle menu', '←'), row('Switch layout', 'G'), row('Back (B)', 'Backspace'), row('L3', 'X'), row('Guide', 'Home'))),
-      el('div', { class: 'grid', style: 'margin-top:14px' },
-        sec('Phone', row('Open', '↑'), row('Scroll', 'Wheel'), row('Select (A)', 'LMB'), row('Close (B)', 'RMB', 'C', 'Backspace')),
-        sec('App', row('This guide', 'F1'), row('Keyboard & mouse on/off', 'F2'), row('Settings', 'F3'),
+      el('p', { class: 'sub' }, 'One controller. Click the stream to capture the mouse, Esc lets it go. A key stays down while you hold it. Triggers are a full press.'),
+      el('div', { class: 'grid' },
+        sec('Move',
+          row('Left stick', 'W A S D'), row('Right stick', 'I J K L'), row('Look', 'Mouse'), row('D-pad', 'Arrows'),
+          row('LT, brake', '-'), row('RT, throttle', '='), row('LB', '['), row('RB', ']'),
+          row('Left stick click', 'Q'), row('Right stick click', 'R', 'MMB'), row('Aim', 'RMB'), row('Shoot', 'LMB')),
+        sec('Buttons',
+          row('A', 'Enter'), row('B', 'Backspace'), row('X', 'X'), row('Y', 'Y'),
+          row('View', 'V'), row('Menu', 'M'), row('Xbox', 'N'),
+          row('This guide', 'F1'), row('Keyboard and mouse', 'F2'), row('Settings', 'F3'),
           row('Reload', 'F5'), row('Fullscreen', 'F11'), row('Release mouse', 'Esc'))),
       el('div', { class: 'foot' },
-        el('span', { class: 'status' + (mkbOn() ? '' : ' off') }, mkbOn() ? '● Keyboard & mouse on · ' + (window.__xboxplayMKB.mode === 'drive' ? 'driving' : 'on foot') : '● Keyboard & mouse off'),
+        el('span', { class: 'status' + (mkbOn() ? '' : ' off') }, mkbOn() ? 'Keyboard and mouse on' : 'Keyboard and mouse off'),
         el('span', null, 'F1 or Esc to close'))));
   }
 
@@ -119,10 +115,8 @@
         slider('trackpad', 'Trackpad boost (small movements)', 1, 6, 0.1, 2.5, v => v.toFixed(1) + '×'),
         slider('antidz', 'Aim kick (beats the game deadzone)', 0, 0.5, 0.01, 0.22, v => v.toFixed(2)),
         el('label', { class: 'set' }, el('span', null, 'Mouse curve'), curve),
-        slider('smooth', 'Key smoothing (0 = instant)', 0, 250, 10, 100, v => v + 'ms'),
         toggle('invertY', 'Invert Y axis', '0'),
-        toggle('autoSwitch', 'Auto-switch on foot / driving on a short V tap', '1'),
-        toggle('badge', 'Show mode badge', '1', refresh),
+        toggle('badge', 'Show keyboard badge', '1', refresh),
         el('label', { class: 'set' }, el('span', null, 'Built-in keyboard & mouse'),
           check('mkb', mkbOn(), on => window.__xboxplayMKB && window.__xboxplayMKB.set(on))),
         toggle('bx', 'Better xCloud on xbox.com/play (needs reload)', '1'),
@@ -136,21 +130,14 @@
     clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.classList.remove('show'); setTimeout(() => t.remove(), 250); }, 2400);
   }
 
-  // Small corner badge showing the current layout (null hides it).
+  // Small corner badge. Pass false to hide it.
   let badgeEl = null;
-  const ICONS = {
-    drive: 'M5 11l1.5-4.5A2 2 0 018.4 5h7.2a2 2 0 011.9 1.5L19 11a2 2 0 012 2v4h-2v2h-3v-2H8v2H5v-2H3v-4a2 2 0 012-2zm2.1 0h9.8l-1-3H8.1l-1 3zM6.5 15a1.5 1.5 0 100-3 1.5 1.5 0 000 3zm11 0a1.5 1.5 0 100-3 1.5 1.5 0 000 3z',
-    foot: 'M13.5 5.5a2 2 0 100-4 2 2 0 000 4zM9.8 8.9L7 23h2.1l1.8-8 2.1 2v6h2v-7.5l-2.1-2 .6-3A7.3 7.3 0 0019 13v-2a5 5 0 01-4.3-2.4l-1-1.6a2 2 0 00-1.7-1 2 2 0 00-.8.2L6 8.3V13h2V9.6l1.8-.7',
-    phone: 'M7 2h10a2 2 0 012 2v16a2 2 0 01-2 2H7a2 2 0 01-2-2V4a2 2 0 012-2zm5 18.2a1.2 1.2 0 100-2.4 1.2 1.2 0 000 2.4zM8 4h8v13H8V4z',
-  };
-  function badge(mode) {
+  function badge(on) {
     if (!document.documentElement) return;
     mount();
-    if (!mode) { if (badgeEl) badgeEl.remove(); badgeEl = null; return; }
+    if (!on) { if (badgeEl) badgeEl.remove(); badgeEl = null; return; }
     if (!badgeEl) { badgeEl = el('div', { class: 'badge' }); root.appendChild(badgeEl); }
-    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); svg.setAttribute('viewBox', '0 0 24 24');
-    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path'); path.setAttribute('d', ICONS[mode] || ICONS.foot); svg.appendChild(path);
-    badgeEl.replaceChildren(svg, document.createTextNode(mode === 'drive' ? 'DRIVING' : mode === 'phone' ? 'PHONE' : 'ON FOOT'));
+    badgeEl.textContent = 'KB';
   }
 
   window.addEventListener('keydown', e => { if (e.code === 'Escape' && panel) { close(); e.preventDefault(); } }, true);

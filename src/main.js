@@ -4,6 +4,7 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const { INJECT_HOSTS, ALLOWED_PERMISSIONS, BX, isAllowedUrl, safeUrl } = require('./config');
+const { loadKeymap } = require('./keymap');
 
 const START = 'https://www.xbox.com/play';
 const DEBUG = process.env.XBOXPLAY_DEBUG === '1';
@@ -142,7 +143,13 @@ function createWindow() {
 }
 
 app.on('web-contents-created', (e, wc) => wc.on('will-attach-webview', ev => ev.preventDefault()));
-app.whenReady().then(async () => { await loadBX(); createWindow(); });
+app.whenReady().then(async () => {
+  const loaded = loadKeymap(app.getPath('userData'));
+  if (loaded.error) log('keymap.json ignored (' + loaded.error + '), using defaults');
+  OWN_SCRIPTS.unshift({ name: 'keymap', code: 'window.__XBOXPLAY_KEYMAP=' + JSON.stringify(loaded.map) + ';' });
+  await loadBX();
+  createWindow();
+});
 app.on('second-instance', () => { const w = BrowserWindow.getAllWindows()[0]; if (w) { if (w.isMinimized()) w.restore(); w.focus(); } });
 app.on('window-all-closed', () => app.quit());
 module.exports = { createWindow };
