@@ -1,5 +1,4 @@
 node_modules/
 *.log
-better-xcloud.user.js
-test-shot.png
-.env*
+*.png.tmp
+.DS_Store
