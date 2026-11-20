@@ -27,7 +27,9 @@ const readme = fs.readFileSync(path.join(__dirname, '../README.md'), 'utf8');
 check(!/\bsetMode\b|\bphone\b|vTimer|autoSwitch|V_HOLD|DRIVE\b/.test(mkbSrc), 'old hold/mode scheme is gone from the input layer');
 check(!/autoSwitch|Driving|on foot|GTA/.test(overlaySrc), 'guide no longer describes the old layouts');
 check(overlaySrc.includes('I J K L') && overlaySrc.includes('Enter') && overlaySrc.includes("'='"), 'guide shows the new map');
+check(overlaySrc.includes("row('LB', 'Q')") && overlaySrc.includes("row('RB', 'R')") && overlaySrc.includes("row('Left stick click', 'F')") && overlaySrc.includes("row('Right stick click', 'G', 'MMB')"), 'guide bumpers are Q and R, stick clicks are F and G');
 check(readme.includes('| Left stick | W A S D |') && readme.includes('I J K L') && readme.includes('keymap.json'), 'readme table shows the new map');
+check(readme.includes('| LB | Q |') && readme.includes('| RB | R |') && readme.includes('| Left stick click | F |') && readme.includes('| Right stick click | G, or the middle mouse button |'), 'readme bumpers are Q and R, stick clicks are F and G');
 check(!/on foot|hold V|Auto-switch|Driving mode/i.test(readme), 'readme dropped the old scheme');
 
 const BUTTON = { A: 0, B: 1, X: 2, Y: 3, LB: 4, RB: 5, LT: 6, RT: 7, View: 8, Menu: 9, L3: 10, R3: 11, DUp: 12, DDown: 13, DLeft: 14, DRight: 15, Guide: 16 };
@@ -350,9 +352,9 @@ function tmpDir() { return fs.mkdtempSync(path.join(os.tmpdir(), 'xboxplay-keyma
     fs.writeFileSync(path.join(dir, 'keymap.json'), '{"RT":"Space"}\n');
     const partial = loadKeymap(dir);
     check(!partial.error && partial.map.RT === 'Space' && partial.map.LT === 'Minus' && partial.map.LSUp === 'KeyW', 'a partial file overrides one control and keeps the rest');
-    fs.writeFileSync(path.join(dir, 'keymap.json'), '{"L3":"KeyR","R3":"KeyQ"}\n');
+    fs.writeFileSync(path.join(dir, 'keymap.json'), '{"L3":"KeyG","R3":"KeyF"}\n');
     const swapped = loadKeymap(dir);
-    check(!swapped.error && swapped.map.L3 === 'KeyR' && swapped.map.R3 === 'KeyQ', 'two controls can swap keys');
+    check(!swapped.error && swapped.map.L3 === 'KeyG' && swapped.map.R3 === 'KeyF' && swapped.map.LB === 'KeyQ', 'two controls can swap keys');
     fs.writeFileSync(path.join(dir, 'keymap.json'), '{"RT":"KeyW"}\n');
     const clash = loadKeymap(dir);
     check(clash.error === 'duplicate key' && clash.map.RT === 'Equal', 'a key used twice is ignored and the defaults stay');

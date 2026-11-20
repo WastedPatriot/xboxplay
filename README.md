@@ -26,7 +26,7 @@ Sign in, go to your console (or a cloud game) and start the stream. Click the pi
 
 The keyboard is one Xbox controller. One key does one thing, and it stays held for as long as you hold the key. The triggers go to a full press, so brake and throttle register in racing games (steer with A and D, brake with `-`, throttle with `=`).
 
-The buttons follow Greenlight's defaults. The sticks, which that map leaves out, are W A S D and I J K L. L is the right stick, so the left stick click is Q.
+The face buttons, triggers, view, menu and Xbox button follow Greenlight. Bumpers are Q and R. The sticks, which Greenlight leaves out, are W A S D and I J K L. Stick clicks are F and G, and the middle mouse button is also the right stick click.
 
 | Control | Key |
 |---|---|
@@ -37,12 +37,12 @@ The buttons follow Greenlight's defaults. The sticks, which that map leaves out,
 | B | Backspace |
 | X | X |
 | Y | Y |
-| LB | [ |
-| RB | ] |
+| LB | Q |
+| RB | R |
 | LT (full press, brake) | - |
 | RT (full press, throttle) | = |
-| Left stick click | Q |
-| Right stick click | R, or the middle mouse button |
+| Left stick click | F |
+| Right stick click | G, or the middle mouse button |
 | View | V |
 | Menu | M |
 | Xbox button | N |

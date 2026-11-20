@@ -1,8 +1,9 @@
 'use strict';
 // Default keyboard -> virtual Xbox pad, and the optional local override.
-// Button keys match Greenlight's gamepad map (one physical key, full press while held).
-// Greenlight does not map the sticks; WASD and IJKL fill those in.
-// L is the right stick, so the left stick click is Q rather than Greenlight's L.
+// Face buttons, D-pad, triggers, view, menu and the Xbox button follow Greenlight
+// (one physical key, full press while held). Bumpers are Q and R. Stick clicks
+// are F and G, because Q and R are the bumpers. Greenlight leaves the sticks
+// unmapped; WASD and IJKL fill those in. L is the right stick, so it is not a click.
 const fs = require('fs');
 const path = require('path');
 
@@ -23,12 +24,12 @@ const DEFAULT_KEYMAP = Object.freeze({
   B: 'Backspace',
   X: 'KeyX',
   Y: 'KeyY',
-  LB: 'BracketLeft',
-  RB: 'BracketRight',
+  LB: 'KeyQ',
+  RB: 'KeyR',
   LT: 'Minus',
   RT: 'Equal',
-  L3: 'KeyQ',
-  R3: 'KeyR',
+  L3: 'KeyF',
+  R3: 'KeyG',
   View: 'KeyV',
   Menu: 'KeyM',
   Guide: 'KeyN',
