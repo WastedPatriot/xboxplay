@@ -4,8 +4,12 @@
 const { ipcRenderer, webFrame } = require('electron');
 
 function safeGet(k) { try { return window.localStorage.getItem(k); } catch { return null; } }
-let scripts = [];
-try { scripts = ipcRenderer.sendSync('xboxplay:scripts', { bx: safeGet('xboxplay.bx') !== '0' }) || []; } catch { scripts = []; }
-for (const { name, code } of scripts) {
-  webFrame.executeJavaScript(code + '\n;void 0').catch(() => console.error('[XboxPlay] ' + name + ' failed to run'));
+async function inject() {
+  let scripts = [];
+  try { scripts = ipcRenderer.sendSync('xboxplay:scripts', { bx: safeGet('xboxplay.bx') !== '0' }) || []; } catch { scripts = []; }
+  for (const { name, code } of scripts) {
+    try { await webFrame.executeJavaScript(code + '\n;void 0'); }
+    catch { console.error('[XboxPlay] ' + name + ' failed to run'); }
+  }
 }
+inject();

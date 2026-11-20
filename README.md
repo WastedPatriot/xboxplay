@@ -22,49 +22,47 @@ If you'd rather read it first (fair), download `install.sh`, look through it, th
 
 ## Using it
 
-Sign in, go to your console (or a cloud game) and start the stream. Click inside the stream to capture the mouse. Esc gives it back.
+Sign in, go to your console (or a cloud game) and start the stream. Click the picture to capture the mouse. Esc gives it back.
 
-There are two layouts, because driving with WASD on a stick doesn't work: on foot, and driving. A short tap of F or V (Y, get in/out of a vehicle) flips between them. Hold V if you just want Y without switching. Games don't tell the page whether you're in a car, so if it gets out of step press G. The corner badge shows which one you're in.
+The keyboard is one Xbox controller. One key does one thing, and it stays held for as long as you hold the key. The triggers go to a full press, so brake and throttle register in racing games (steer with A and D, brake with `-`, throttle with `=`).
 
-The phone in GTA opens with the up arrow. While it's open, the mouse look pauses, the wheel moves up and down the list, left click selects (A), and right click, C or Backspace closes it (B). Two-finger trackpad scrolling is left alone until the phone is actually open.
+The face buttons, triggers, view, menu and Xbox button follow Greenlight. Bumpers are Q and R. The sticks, which Greenlight leaves out, are W A S D and I J K L. Stick clicks are F and G, and the middle mouse button is also the right stick click.
 
-The layout matches GTA 6's default controller scheme, with keys where PC players expect them.
-
-| Action | On foot | Driving |
-|---|---|---|
-| Move / steer | W A S D | A / D, W accelerate, S brake |
-| Look | Mouse / trackpad | Mouse / trackpad |
-| Run (L3) / horn | Shift | Shift or H |
-| Jump (A) / handbrake | Space | Space |
-| Crouch / duck (B) | C or Ctrl | C or Ctrl |
-| Interact, enter, exit (Y) | E, F or V | E, F or V |
-| Melee / kick (X) | R | R |
-| Aim (LT) | Right click or K | Right click or K (brake) |
-| Shoot | Left click or L (RT) | Left click (RB) |
-| Cover (RB) | Q | Q |
-| Loadout / sidearm (LB) | Tab | Tab |
-| Zoom, look back (R3) | Middle click or Z | Middle click or Z |
-| Focus (L3 + R3) | T | T |
-| Map / pause | M / Enter or P | same |
-| D-pad | Arrow keys (up is the phone) | same |
-| Guide | Home | same |
-
-Keys ease in over about 100ms instead of snapping to full, so steering and throttle feel less twitchy. K and L are there for trackpad users who can't right-click and move at the same time.
+| Control | Key |
+|---|---|
+| Left stick | W A S D |
+| Right stick | I J K L, or the mouse |
+| D-pad | Arrow keys |
+| A | Enter |
+| B | Backspace |
+| X | X |
+| Y | Y |
+| LB | Q |
+| RB | R |
+| LT (full press, brake) | - |
+| RT (full press, throttle) | = |
+| Left stick click | F |
+| Right stick click | G, or the middle mouse button |
+| View | V |
+| Menu | M |
+| Xbox button | N |
+| Aim (LT) | Right mouse button |
+| Shoot (RT) | Left mouse button |
 
 | Key | Does |
 |---|---|
 | F1 | Controls guide |
 | F2 | Keyboard and mouse on/off |
-| G | Switch on foot / driving |
-| Up arrow | Open the phone (then wheel / click / C) |
 | F3 | Settings |
 | F5 | Reload |
 | F11 | Fullscreen |
-| Esc | Release the mouse (also closes the phone) |
+| Esc | Release the mouse |
 
 A real controller works too, it's passed straight through.
 
-F3 has mouse sensitivity (default 2), a trackpad boost (multiplies small movements), linear or smooth mouse curve, key smoothing (0 = instant), invert Y, auto-switch on a short V tap, and the mode badge. They're saved in the app. `XBOXPLAY_SENS=1.5 xboxplay` also sets the sensitivity.
+F3 has mouse sensitivity (default 2), a trackpad boost for small movements, a linear or smooth mouse curve, invert Y, and the badge. They're saved in the app. `XBOXPLAY_SENS=1.5 xboxplay` also sets the sensitivity.
+
+To change a key, copy `keymap.example.json` to `~/.config/XboxPlay/keymap.json` and edit it. Each key can only be used once. If that file is missing, isn't a normal file, or doesn't match the example, you get the table above.
 
 ## Better xCloud
 
@@ -75,7 +73,6 @@ On the old `www.xbox.com/play` site the app also loads [Better xCloud](https://g
 - Xbox is moving people to the new `play.xbox.com` site. Right after that redirect it sometimes shows "Bad Request". The app retries; if it's still stuck press F5. To go back to the old site: sign in, click your profile picture, Exit preview.
 - If the stream sits on "connecting" forever, try `XBOXPLAY_SAFE=1 xboxplay` (turns off GPU acceleration). Also check whether a VPN or Tailscale is up.
 - The mouse goes through a virtual stick, so aiming feels like a controller with a very fast thumb. Tune the sensitivity and curve in F3.
-- Auto-switch only knows you tapped V, not whether you actually got in. If the layout is wrong, press G to put it back.
 - Sound should start with the stream. If it doesn't, click once inside the window.
 - Only tested on Debian-based distros with X11. Wayland should work but I haven't tried much.
 
@@ -93,6 +90,7 @@ bash ~/xboxplay/uninstall.sh --purge  # also deletes ~/.config/XboxPlay
 - Only pointer lock, fullscreen, keyboard lock, mic/camera, speaker selection and clipboard write are granted, and only to those domains.
 - No telemetry of its own. Logs never include URLs' query strings.
 - Your login lives in `~/.config/XboxPlay` like any browser profile.
+- `keymap.json` is only read from that same folder, only if it is a regular file (not a link), and only if every entry is a known control and one key code. It is never downloaded.
 
 Found something? See [SECURITY.md](SECURITY.md).
 

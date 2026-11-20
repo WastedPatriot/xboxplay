@@ -22,5 +22,7 @@ jobs:
         run: shellcheck install.sh uninstall.sh
       - name: node --check
         run: for f in src/*.js test/*.js scripts/*.js; do node --check "$f"; done
+      - name: unit tests
+        run: node test/unit.js
       - name: lockfile is in sync
         run: npm ci --ignore-scripts --no-audit --no-fund
