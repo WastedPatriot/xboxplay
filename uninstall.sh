@@ -44,7 +44,8 @@ remove_mate_launcher() {
     fi
     dconf reset -f "/org/mate/panel/objects/$MATE_ID/" 2>/dev/null || true
   fi
-  rm -f "$HOME/.config/mate/panel2.d/default/launchers/xboxplay.desktop"
+  rm -f "$HOME/.config/mate/panel2.d/default/launchers/xboxplay.desktop" \
+    "$HOME/.config/mate/panel2.d/default/launchers/XboxPlay.desktop"
 }
 
 if [ -f "$STAMP" ]; then
@@ -57,7 +58,7 @@ case "$APP" in
 esac
 
 present=0
-if [ -d "$APP" ] || [ -e "$HOME/.local/bin/xboxplay" ] || [ -e "$HOME/.local/share/applications/xboxplay.desktop" ] || [ -e "$STAMP" ]; then
+if [ -d "$APP" ] || [ -e "$HOME/.local/bin/xboxplay" ] || [ -e "$HOME/.local/share/applications/XboxPlay.desktop" ] || [ -e "$HOME/.local/share/applications/xboxplay.desktop" ] || [ -e "$STAMP" ]; then
   present=1
 fi
 
@@ -66,9 +67,12 @@ if [ -d "$APP" ]; then
 fi
 remove_mate_launcher
 rm -f "$HOME/.local/bin/xboxplay" \
+  "$HOME/.local/share/applications/XboxPlay.desktop" \
   "$HOME/.local/share/applications/xboxplay.desktop" \
-  "$HOME/.local/share/icons/hicolor/256x256/apps/xboxplay.png" \
   "$STAMP"
+for size in 16 32 48 64 128 256 512; do
+  rm -f "$HOME/.local/share/icons/hicolor/${size}x${size}/apps/xboxplay.png"
+done
 rmdir "$HOME/.local/share/xboxplay" 2>/dev/null || true
 if command -v update-desktop-database >/dev/null 2>&1; then
   update-desktop-database "$HOME/.local/share/applications" 2>/dev/null || true

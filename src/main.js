@@ -39,6 +39,8 @@ function frameOk(e) {
 }
 
 app.setName('XboxPlay');
+// WM_CLASS. The desktop file's StartupWMClass is the same string, so the menu entry and the window are one app.
+if (process.platform === 'linux') app.commandLine.appendSwitch('class', 'XboxPlay');
 app.userAgentFallback = CHROME_UA;
 if (process.env.XBOXPLAY_SAFE === '1') app.disableHardwareAcceleration();
 else {

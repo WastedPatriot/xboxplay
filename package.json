@@ -1,18 +1,25 @@
 {
   "name": "xboxplay",
-  "version": "1.0.0",
+  "productName": "XboxPlay",
+  "desktopName": "XboxPlay.desktop",
+  "version": "1.1.0",
   "description": "Unofficial Linux desktop app for Xbox remote play and cloud gaming, with built-in keyboard and mouse.",
   "main": "src/main.js",
   "private": true,
   "license": "MIT",
   "author": "WastedPatriot",
-  "repository": { "type": "git", "url": "https://github.com/WastedPatriot/xboxplay.git" },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/WastedPatriot/xboxplay.git"
+  },
   "scripts": {
     "start": "electron .",
     "check": "node --check src/main.js && node --check src/preload.js && node --check src/config.js && node --check src/mkb.js && node --check src/overlay.js && node --check src/stream.js && node --check src/input-devices.js && node test/unit.js",
-    "smoke": "electron test/smoke.js"
+    "smoke": "electron test/smoke.js",
+    "dist": "electron-builder --linux AppImage deb rpm"
   },
-  "dependencies": {
-    "electron": "45.4.1"
+  "devDependencies": {
+    "electron": "45.4.1",
+    "electron-builder": "26.18.0"
   }
 }

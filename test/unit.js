@@ -18,6 +18,14 @@ check(/setAudioMuted\(\s*false\s*\)/.test(mainSrc), 'webContents is explicitly u
 const cfg = fs.readFileSync(path.join(__dirname, '../src/config.js'), 'utf8');
 check(cfg.includes("'media'") && cfg.includes('speaker-selection'), 'media and speaker-selection are allowed');
 check(mainSrc.includes("OWN_SCRIPTS.unshift({ name: 'debug'"), 'debug flag is injected when XBOXPLAY_DEBUG=1');
+check(mainSrc.includes("appendSwitch('class', 'XboxPlay')"), 'the window class is XboxPlay, matching the desktop file');
+const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '../package.json'), 'utf8'));
+check(pkg.productName === 'XboxPlay' && pkg.desktopName === 'XboxPlay.desktop' && pkg.version === '1.1.0', 'package name, desktop name, and version');
+const builder = fs.readFileSync(path.join(__dirname, '../electron-builder.yml'), 'utf8');
+check(builder.includes('AppImage') && builder.includes('deb') && builder.includes('rpm'), 'electron-builder targets AppImage, deb, and rpm');
+check(builder.includes('Keywords: xbox;cloud;gaming;remote;play;') && builder.includes('StartupWMClass: XboxPlay'), 'the packaged desktop entry is searchable as XboxPlay');
+const flatpakDesktop = fs.readFileSync(path.join(__dirname, '../flatpak/com.wastedpatriot.XboxPlay.desktop'), 'utf8');
+check(flatpakDesktop.includes('Name=XboxPlay') && flatpakDesktop.includes('Keywords=xbox;cloud;gaming;remote;play;') && flatpakDesktop.includes('StartupWMClass=XboxPlay') && flatpakDesktop.includes('Terminal=false'), 'the Flatpak desktop entry matches');
 check(mainSrc.includes("name: 'stream'"), 'stream helper is injected');
 check(mainSrc.includes('backgroundThrottling: false'), 'the page is not background-throttled');
 check(mainSrc.includes('disable-background-timer-throttling') && mainSrc.includes('disable-renderer-backgrounding') && mainSrc.includes('disable-backgrounding-occluded-windows'), 'Chromium is told not to throttle a covered window');

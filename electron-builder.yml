@@ -1,0 +1,28 @@
+appId: com.wastedpatriot.xboxplay
+productName: XboxPlay
+asar: true
+files:
+  - src/**/*
+  - assets/**/*
+  - package.json
+  - LICENSE
+linux:
+  target:
+    - AppImage
+    - deb
+    - rpm
+  category: Game
+  icon: assets/icons
+  executableName: xboxplay
+  syncDesktopName: true
+  synopsis: Xbox remote play and cloud gaming
+  maintainer: WastedPatriot
+  desktop:
+    entry:
+      Name: XboxPlay
+      GenericName: Xbox remote play
+      Keywords: xbox;cloud;gaming;remote;play;
+      StartupWMClass: XboxPlay
+      Terminal: "false"
+      StartupNotify: "true"
+      Type: Application

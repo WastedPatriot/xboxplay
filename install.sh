@@ -9,10 +9,9 @@ REPO="${XBOXPLAY_REPO:-https://github.com/WastedPatriot/xboxplay.git}"
 BRANCH="${XBOXPLAY_BRANCH:-main}"
 BIN="$HOME/.local/bin/xboxplay"
 DESKTOP_DIR="$HOME/.local/share/applications"
-DESKTOP="$DESKTOP_DIR/xboxplay.desktop"
-ICON_DIR="$HOME/.local/share/icons/hicolor/256x256/apps"
-ICON_DST="$ICON_DIR/xboxplay.png"
+DESKTOP="$DESKTOP_DIR/XboxPlay.desktop"
 STAMP_DIR="$HOME/.local/share/xboxplay"
+ICON_SIZES="16 32 48 64 128 256 512"
 MATE_ID="xboxplay"
 
 say() { printf '\033[1;32m==>\033[0m %s\n' "$*"; }
@@ -50,6 +49,27 @@ append_id() {
   printf "%s, '%s']" "$body" "$id"
 }
 
+# Only used when a command is actually missing. The install itself stays in the home directory.
+pm_install() {
+  if command -v apt-get >/dev/null 2>&1; then
+    say "Missing $*. Installing them with apt needs sudo."
+    sudo apt-get update -y
+    sudo apt-get install -y "$@"
+  elif command -v dnf >/dev/null 2>&1; then
+    say "Missing $*. Installing them with dnf needs sudo."
+    sudo dnf install -y "$@"
+  elif command -v pacman >/dev/null 2>&1; then
+    say "Missing $*. Installing them with pacman needs sudo."
+    sudo pacman -Sy --needed --noconfirm "$@"
+  elif command -v zypper >/dev/null 2>&1; then
+    say "Missing $*. Installing them with zypper needs sudo."
+    sudo zypper --non-interactive install "$@"
+  else
+    warn "Missing $*. This script knows apt, dnf, pacman, and zypper. Install them yourself, then run it again."
+    exit 1
+  fi
+}
+
 need_cmd() {
   local missing=()
   if [ "${1:-}" = "clone" ]; then
@@ -62,9 +82,14 @@ need_cmd() {
     missing+=(nodejs npm)
   fi
   if [ "${#missing[@]}" -gt 0 ]; then
-    say "Missing ${missing[*]}. Installing them with apt needs sudo."
-    sudo apt-get update -y
-    sudo apt-get install -y "${missing[@]}"
+    pm_install "${missing[@]}"
+  fi
+  if command -v node >/dev/null 2>&1; then
+    local major
+    major="$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)"
+    if [ "$major" -ge 18 ] && [ "$major" -lt 22 ]; then
+      warn "Node $major is older than 22. Electron 45 expects Node 22. If npm ci fails, install Node 22 and run this again."
+    fi
   fi
 }
 
@@ -100,6 +125,7 @@ while [ $# -gt 0 ]; do
       ;;
   esac
 done
+export CHROME_DESKTOP="${CHROME_DESKTOP:-XboxPlay.desktop}"
 if [ -n "$SANDBOX_FLAG" ]; then
   exec "$APP/node_modules/electron/dist/electron" "$APP" "$SANDBOX_FLAG" "${args[@]}"
 fi
@@ -109,27 +135,47 @@ EOF
   chmod +x "$BIN"
 }
 
+install_icons() {
+  local size from dir
+  for size in $ICON_SIZES; do
+    from=""
+    if [ -f "$APP/assets/icons/${size}x${size}.png" ]; then
+      from="$APP/assets/icons/${size}x${size}.png"
+    elif [ "$size" = "256" ] && [ -f "$APP/assets/icon.png" ]; then
+      from="$APP/assets/icon.png"
+    fi
+    if [ -n "$from" ]; then
+      dir="$HOME/.local/share/icons/hicolor/${size}x${size}/apps"
+      mkdir -p "$dir"
+      cp "$from" "$dir/xboxplay.png"
+    fi
+  done
+}
+
 write_desktop() {
-  mkdir -p "$DESKTOP_DIR" "$ICON_DIR"
+  mkdir -p "$DESKTOP_DIR"
+  install_icons
   local icon_line=""
-  if [ -f "$APP/assets/icon.png" ]; then
-    cp "$APP/assets/icon.png" "$ICON_DST"
-    icon_line="Icon=$ICON_DST"
+  if [ -f "$HOME/.local/share/icons/hicolor/256x256/apps/xboxplay.png" ]; then
+    icon_line="Icon=xboxplay"
   else
     warn "assets/icon.png is missing, so the menu entry has no icon."
   fi
   {
     printf '%s\n' '[Desktop Entry]' 'Version=1.0' 'Type=Application' 'Name=XboxPlay'
-    printf '%s\n' 'Comment=Xbox remote play and cloud gaming' "Exec=$BIN"
+    printf '%s\n' 'GenericName=Xbox remote play' 'Comment=Xbox remote play and cloud gaming'
+    printf '%s\n' 'Keywords=xbox;cloud;gaming;remote;play;' "Exec=$BIN"
     if [ -n "$icon_line" ]; then printf '%s\n' "$icon_line"; fi
     printf '%s\n' 'Terminal=false' 'Categories=Game;' 'StartupWMClass=XboxPlay' 'StartupNotify=true'
   } > "$DESKTOP"
+  rm -f "$DESKTOP_DIR/xboxplay.desktop"
   if command -v update-desktop-database >/dev/null 2>&1; then
     update-desktop-database "$DESKTOP_DIR" 2>/dev/null || true
   fi
   local legacy="$HOME/.config/mate/panel2.d/default/launchers"
   if [ -d "$legacy" ]; then
-    cp "$DESKTOP" "$legacy/xboxplay.desktop"
+    cp "$DESKTOP" "$legacy/XboxPlay.desktop"
+    rm -f "$legacy/xboxplay.desktop"
   fi
 }
 
@@ -152,7 +198,7 @@ add_mate_launcher() {
       ;;
   esac
   dconf write "/org/mate/panel/objects/$MATE_ID/object-type" "'launcher'"
-  dconf write "/org/mate/panel/objects/$MATE_ID/launcher-location" "'xboxplay.desktop'"
+  dconf write "/org/mate/panel/objects/$MATE_ID/launcher-location" "'XboxPlay.desktop'"
   dconf write "/org/mate/panel/objects/$MATE_ID/toplevel-id" "'$top'"
   dconf write "/org/mate/panel/objects/$MATE_ID/position" "100"
   dconf write "/org/mate/panel/objects/$MATE_ID/panel-right-stick" "false"

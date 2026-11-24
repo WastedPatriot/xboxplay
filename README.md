@@ -10,25 +10,72 @@ Not affiliated with or endorsed by Microsoft. Xbox is a trademark of Microsoft. 
 
 ## Install
 
-From a checkout:
+For your user, from a checkout. Same command on Debian, Ubuntu, Parrot, Fedora, Arch, and openSUSE. It does not need root. It only calls apt, dnf, pacman, or zypper when git, curl, or Node is missing, and it says so before using sudo. Electron 45 expects Node 22.
 
 ```bash
-git fetch origin polish
+git clone https://github.com/WastedPatriot/xboxplay.git
+cd xboxplay
+./install.sh
+```
+
+If you already have a checkout (on my machine that is `~/xboxplay`):
+
+```bash
+cd ~/xboxplay
+git fetch origin
 git checkout polish
 ./install.sh
 ```
 
-That installs for your user. It runs `npm ci`, adds an `xboxplay` command, and puts an icon in the app menu so you can pin it. On MATE (Parrot's default desktop) it also adds a panel launcher, if a panel is already set up. Run it again whenever you want; it refreshes the same files and does not add a second launcher or change your git branch.
+That runs `npm ci`, adds `~/.local/bin/xboxplay`, and adds a menu entry named XboxPlay. No terminal window. The icon is installed in the hicolor sizes, and `StartupWMClass` is `XboxPlay`, which is also the window class. On MATE (Parrot's default desktop) it pins a panel launcher when a panel is already set up. Run it again to refresh. It does not change your git branch or add a second launcher.
 
-Sudo is only for missing packages (git, Node, npm, via apt) and for Chromium's sandbox helper. If you skip the sandbox step it still runs, with `--no-sandbox`. A wired controller also needs your user in the `input` group. That is a separate sudo, and you have to log out afterwards:
+Search for XboxPlay in the app menu and start it from there.
+
+Sudo is also used once for Chromium's sandbox helper. If you skip that, it still runs, with `--no-sandbox`. A wired controller needs your user in the `input` group. That is a separate sudo, and you have to log out afterwards:
 
 ```bash
 sudo usermod -aG input "$USER"
 ```
 
-The 8BitDo Ultimate 2C over USB uses the kernel `xpad` driver and shows up as `/dev/input/js*`. Electron reads it as a normal controller. Official Xbox Series pads over USB often need the `xone` driver instead. Bluetooth controllers use `xpadneo` or the kernel HID driver.
+The 8BitDo Ultimate 2C over USB uses the kernel `xpad` driver and shows up as `/dev/input/js*`. Electron reads it as a normal controller. Official Xbox Series pads over USB often need the `xone` driver instead. Bluetooth controllers use `xpadneo` or the kernel HID driver. This script does not install kernel drivers.
 
 You can still install with `curl -fsSL https://raw.githubusercontent.com/WastedPatriot/xboxplay/main/install.sh | bash`, which clones `main` into `~/xboxplay`. Set `XBOXPLAY_BRANCH` if you want a different branch. Read the script first if you'd rather not pipe it.
+
+### Packages
+
+Pushing a tag such as `v1.1.0` builds an AppImage, a `.deb`, and an `.rpm`, and attaches them to that GitHub release. The AppImage contains the same desktop entry (Name=XboxPlay, no terminal).
+
+```bash
+chmod +x XboxPlay-1.1.0.AppImage
+./XboxPlay-1.1.0.AppImage
+```
+
+Debian, Ubuntu, Parrot:
+
+```bash
+sudo apt install ./xboxplay_1.1.0_amd64.deb
+```
+
+Fedora:
+
+```bash
+sudo dnf install ./xboxplay-1.1.0.x86_64.rpm
+```
+
+openSUSE:
+
+```bash
+sudo zypper install ./xboxplay-1.1.0.x86_64.rpm
+```
+
+Arch does not get an rpm. Use the AppImage, or `./install.sh`.
+
+Flatpak, from a checkout, if you have `flatpak-builder` and the Freedesktop 25.08 SDK plus its Node 22 extension:
+
+```bash
+flatpak-builder --user --install --force-clean build-dir flatpak/com.wastedpatriot.XboxPlay.yml
+flatpak run com.wastedpatriot.XboxPlay
+```
 
 ## Using it
 
@@ -92,14 +139,16 @@ F3 also has stream quality. Auto leaves Xbox's bitrate alone and keeps the playb
 
 On the old `www.xbox.com/play` site the app also loads [Better xCloud](https://github.com/redphx/better-xcloud) (pinned to v6.7.13, checked against a SHA-256 before it runs). It doesn't work on the new `play.xbox.com` site yet, which is why the built-in keyboard and mouse exists. You can turn Better xCloud off in F3, or with `XBOXPLAY_BX=0`.
 
-## Known issues
+## Troubleshooting
 
+- XboxPlay does not show in the menu. Run `./install.sh` again, then log out and back in. The entry name is XboxPlay, not the terminal command.
+- The controller is missing. Wired USB needs the `input` group, then a logout. The 8BitDo Ultimate 2C uses `xpad`. Official Series pads over USB often need `xone`. Bluetooth needs `xpadneo` or the kernel HID driver. In F3, leave the choice on "Controller if plugged in" unless you want the keyboard.
+- The stream sits on "connecting", or the picture is black. Try `XBOXPLAY_SAFE=1 xboxplay` (turns off GPU acceleration, including VA-API). Also check whether a VPN or Tailscale is up.
 - Xbox is moving people to the new `play.xbox.com` site. Right after that redirect it sometimes shows "Bad Request". The app retries; if it's still stuck press F5. To go back to the old site: sign in, click your profile picture, Exit preview.
-- If the stream sits on "connecting" forever, or the picture is black, try `XBOXPLAY_SAFE=1 xboxplay` (turns off GPU acceleration, including VA-API). Also check whether a VPN or Tailscale is up.
 - The mouse goes through a virtual stick, so aiming feels like a controller with a very fast thumb. Tune the sensitivity and curve in F3.
 - Auto-switch only knows you tapped V, not whether you actually got in. If the layout is wrong, press G to put it back.
 - Sound should start with the stream. If it doesn't, click once inside the window.
-- Only tested on Debian-based distros with X11. Wayland should work but I haven't tried much.
+- I use this on Debian-based X11 (Parrot, MATE). The installer also handles Fedora, Arch, and openSUSE. Wayland should work, but I have not tried it much.
 
 ## Uninstall
 
