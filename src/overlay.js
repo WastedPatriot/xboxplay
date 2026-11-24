@@ -39,7 +39,9 @@
       border-radius: 8px; background: rgba(18,20,22,.6); border: 1px solid rgba(255,255,255,.08); color: #cfd3d6;
       font: 600 11px "Segoe UI", system-ui, sans-serif; letter-spacing: .04em; pointer-events: none; opacity: .75; }
     .badge svg { width: 15px; height: 15px; fill: #3ddc5b; }
-    select { background: #222427; color: #eee; border: 1px solid #3a3d42; border-radius: 6px; padding: 4px 6px; font: inherit; }`;
+    select { background: #222427; color: #eee; border: 1px solid #3a3d42; border-radius: 6px; padding: 4px 6px; font: inherit; }
+    .note { font-size: 12.5px; color: #9aa0a6; margin: 0 0 8px; min-height: 1.2em; }
+    .note.ok { color: #3ddc5b; } .note.bad { color: #e6a23c; }`;
 
   let host, root, panel = null, toastTimer;
   function mount() {
@@ -112,9 +114,20 @@
       const sensDef = parseFloat(window.__XBOXPLAY_SENS) || 2;
       const check = (key, on, fn) => { const c = el('input', { type: 'checkbox', onchange: e => fn(e.target.checked) }); c.checked = on; return c; };
       const refresh = () => window.__xboxplayMKB && window.__xboxplayMKB.refreshBadge();
+      const current = (window.__xboxplayMKB && window.__xboxplayMKB.controllerMode) ? window.__xboxplayMKB.controllerMode() : (LS.getItem('xboxplay.controller') || 'auto');
+      const pick = el('select', { onchange: e => { if (window.__xboxplayMKB) window.__xboxplayMKB.setController(e.target.value); controllerHint(); } },
+        el('option', { value: 'auto' }, 'Controller if plugged in'),
+        el('option', { value: 'wired' }, 'Wired USB'),
+        el('option', { value: 'bluetooth' }, 'Bluetooth'),
+        el('option', { value: 'keyboard' }, 'Keyboard'));
+      pick.value = current;
+      statusEl = el('p', { class: 'note' }, '');
+      controllerHint();
       return el('div', { class: 'card' },
         el('h1', null, 'Settings'),
         el('p', { class: 'sub' }, 'Saved on this computer. Changes apply straight away.'),
+        el('label', { class: 'set' }, el('span', null, 'Controller'), pick),
+        statusEl,
         slider('sens', 'Mouse sensitivity', 0.2, 8, 0.1, sensDef, v => v.toFixed(1)),
         slider('trackpad', 'Trackpad boost (small movements)', 1, 6, 0.1, 2.5, v => v.toFixed(1) + '×'),
         slider('antidz', 'Aim kick (beats the game deadzone)', 0, 0.5, 0.01, 0.22, v => v.toFixed(2)),
@@ -128,6 +141,45 @@
         toggle('bx', 'Better xCloud on xbox.com/play (needs reload)', '1'),
         el('div', { class: 'foot' }, el('span', null, ''), el('span', null, 'F3 or Esc to close')));
     });
+  }
+
+  let statusEl = null, lastBad = '';
+  function controllerLine() {
+    const mode = (window.__xboxplayMKB && window.__xboxplayMKB.controllerMode) ? window.__xboxplayMKB.controllerMode() : 'auto';
+    if (mode === 'keyboard') return { text: 'Using the keyboard. A plugged-in controller is ignored.', kind: 'ok' };
+    const dev = window.__XBOXPLAY_DEVICES;
+    if (!dev || !dev.scanned) return { text: '', kind: '' };
+    const wired = dev.wired || [], bluetooth = dev.bluetooth || [];
+    if (mode === 'auto') {
+      if (wired.length || bluetooth.length) return { text: 'Using ' + (wired[0] || bluetooth[0]), kind: 'ok' };
+      return { text: '', kind: '' };
+    }
+    const list = mode === 'wired' ? wired : bluetooth;
+    const other = mode === 'wired' ? bluetooth : wired;
+    if (list.length) return { text: (mode === 'wired' ? 'Wired USB: ' : 'Bluetooth: ') + list[0], kind: 'ok' };
+    if (other.length) {
+      return { text: mode === 'wired'
+        ? 'No wired USB controller found. A Bluetooth controller is connected.'
+        : 'No Bluetooth controller found. A wired USB controller is connected.', kind: 'bad' };
+    }
+    return { text: mode === 'wired'
+      ? 'No wired USB controller found. Plug it in (xpad or xone). It should show up as /dev/input/js*.'
+      : 'No Bluetooth controller found. Pair it and check that xpadneo or the kernel HID driver is in use.', kind: 'bad' };
+  }
+  function controllerHint() {
+    const line = controllerLine();
+    if (statusEl) {
+      statusEl.textContent = line.text;
+      statusEl.className = 'note' + (line.kind === 'bad' ? ' bad' : line.kind === 'ok' ? ' ok' : '');
+    }
+    if (line.kind !== 'bad') { lastBad = ''; return; }
+    if (!line.text || line.text === lastBad) return;
+    lastBad = line.text;
+    let seen = '';
+    try { seen = sessionStorage.getItem('xboxplay.padMsg') || ''; } catch (e) {}
+    if (seen === line.text) return;
+    try { sessionStorage.setItem('xboxplay.padMsg', line.text); } catch (e) {}
+    toast(line.text);
   }
 
   function toast(text) {
@@ -154,5 +206,6 @@
   }
 
   window.addEventListener('keydown', e => { if (e.code === 'Escape' && panel) { close(); e.preventDefault(); } }, true);
-  window.__xboxplayUI = Object.freeze({ guide, settings, toast, badge, close, isOpen: () => !!panel });
+  window.__xboxplayUI = Object.freeze({ guide, settings, toast, badge, close, controllerHint, isOpen: () => !!panel });
+  setInterval(() => { try { controllerHint(); } catch (e) {} }, 1000);
 })();

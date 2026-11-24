@@ -59,7 +59,27 @@
     setSensitivity(v) { LS.setItem('xboxplay.sens', String(v)); },
     state() { return { mode: this.mode, phone: this.phone, ...cur, rx, ry }; },
     refreshBadge() { badge(); },
+    controllerMode() { return controllerMode(); },
+    setController(mode) {
+      const m = normalizeMode(mode);
+      if (!m) return;
+      window.__XBOXPLAY_CONTROLLER = m;
+      LS.setItem('xboxplay.controller', m);
+      try { if (window.xboxplayHost && window.xboxplayHost.setController) window.xboxplayHost.setController(m); } catch (e) {}
+    },
   };
+  function normalizeMode(v) {
+    v = String(v || '').toLowerCase();
+    if (v === 'usb') return 'wired';
+    if (v === 'bt') return 'bluetooth';
+    if (v === 'keys' || v === 'mkb') return 'keyboard';
+    if (v === 'wired' || v === 'bluetooth' || v === 'keyboard' || v === 'auto') return v;
+    return '';
+  }
+  // auto: a real pad if one is plugged in, otherwise the keyboard. keyboard forces the virtual pad.
+  function controllerMode() {
+    return normalizeMode(window.__XBOXPLAY_CONTROLLER) || normalizeMode(get('controller', '')) || 'auto';
+  }
   // If Better xCloud is loaded and the user never chose, leave input to Better xCloud.
   setTimeout(() => { if (!pref && window.BX_EXPOSED) { M.enabled = false; badge(); } }, 0);
 
@@ -161,14 +181,16 @@
   let slot = 0;
   Navigator.prototype.getGamepads = function () {
     const real = Array.from(origGP.call(this) || []);
-    // Turning the layer off keeps a neutral pad plugged in (unless a real controller is there), so the game
-    // doesn't throw a controller-disconnected error.
-    // A real controller (wired or Bluetooth) always wins: hand it to the game on its own.
-    if (real.some(Boolean)) return real;
-    if (!M.enabled && !announced) return real;
-    slot = real.findIndex(p => !p); if (slot < 0) slot = real.length;
-    while (real.length < 4) real.push(null);
-    real[slot] = pad(slot); gpCalls++; return real;
+    // A real controller (wired or Bluetooth, including the 8BitDo on xpad) is what the game reads.
+    // It is returned on its own, not mixed with the keyboard pad. Keyboard mode is the exception:
+    // that forces the virtual pad even when a controller is plugged in.
+    if (controllerMode() !== 'keyboard' && real.some(Boolean)) return real;
+    // Turning the layer off keeps a neutral pad plugged in, so the game doesn't throw a disconnect.
+    if (!M.enabled && !announced) return controllerMode() === 'keyboard' ? [] : real;
+    const base = controllerMode() === 'keyboard' ? [] : real;
+    slot = base.findIndex(p => !p); if (slot < 0) slot = base.length;
+    while (base.length < 4) base.push(null);
+    base[slot] = pad(slot); gpCalls++; return base;
   };
   let gpCalls = 0;
   setInterval(() => { if (gpCalls || M.active()) debug('game read the virtual pad ' + gpCalls + ' times in 3s, mode=' + M.mode); gpCalls = 0; }, 3000);
@@ -338,7 +360,12 @@
   });
   window.addEventListener('blur', reset);
   document.addEventListener('visibilitychange', () => { if (document.hidden) reset(); });
-  if (M.enabled) announce();
+  if (M.enabled) {
+    let physical = false;
+    try { physical = Array.from(origGP.call(navigator) || []).some(Boolean); } catch (e) {}
+    // Don't advertise the virtual pad when a real controller is already connected.
+    if (controllerMode() === 'keyboard' || !physical) announce();
+  }
   const showBadge = () => setTimeout(badge, 0);
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', showBadge); else showBadge();
 })();

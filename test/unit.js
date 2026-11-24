@@ -1,8 +1,10 @@
 // Headless unit tests for the keyboard/mouse layer and audio startup. Run: node test/unit.js
 'use strict';
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const vm = require('vm');
+const { parseBitmap, listInputDevices, summarizeDevices, resolveController, readControllerSetting, writeControllerSetting } = require('../src/input-devices');
 
 let failed = 0;
 const check = (ok, what) => { console.log((ok ? 'PASS ' : 'FAIL ') + what); if (!ok) failed++; };
@@ -53,8 +55,9 @@ function makeEnv() {
     get pointerLockElement() { return pointerLockElement; },
     _throwUnadjusted: false, _rejectUnadjusted: false,
   };
+  const pads = { list: [] };
   function Navigator() {}
-  Navigator.prototype.getGamepads = function () { return []; };
+  Navigator.prototype.getGamepads = function () { return pads.list; };
   function Gamepad() {}
   const windowObj = {
     localStorage: {
@@ -76,6 +79,7 @@ function makeEnv() {
   ctx._fireDoc = (type, ev) => fire('document', type, ev);
   ctx._doc = document;
   ctx._store = store;
+  ctx._pads = pads;
   return ctx;
 }
 
@@ -98,7 +102,94 @@ function load() {
 
 function key(ctx, type, code, extra) { return ctx._fire(type, { code, repeat: false, ...(extra || {}) }); }
 
+function fakeInput(root) {
+  const dev = path.join(root, 'dev0');
+  const parent = path.join(root, 'parent');
+  const driver = path.join(root, 'drivers', 'xpad');
+  fs.mkdirSync(path.join(dev, 'id'), { recursive: true });
+  fs.mkdirSync(path.join(dev, 'capabilities'), { recursive: true });
+  fs.mkdirSync(parent, { recursive: true });
+  fs.mkdirSync(driver, { recursive: true });
+  fs.writeFileSync(path.join(dev, 'name'), '8BitDo Ultimate 2C\n');
+  fs.writeFileSync(path.join(dev, 'phys'), 'usb-0000:00:14.0-1/input0\n');
+  fs.writeFileSync(path.join(dev, 'id/bustype'), '0003\n');
+  fs.writeFileSync(path.join(dev, 'id/vendor'), '2dc8\n');
+  fs.writeFileSync(path.join(dev, 'id/product'), '310a\n');
+  // BTN_A is bit 304. On a 64-bit bitmap that is word 4, bit 48.
+  fs.writeFileSync(path.join(dev, 'capabilities/key'), '1000000000000 0 0 0 0\n');
+  fs.writeFileSync(path.join(dev, 'capabilities/abs'), '1\n');
+  fs.symlinkSync(driver, path.join(parent, 'driver'));
+  fs.symlinkSync(parent, path.join(dev, 'device'));
+  const js = path.join(root, 'class', 'js0');
+  fs.mkdirSync(js, { recursive: true });
+  fs.symlinkSync(dev, path.join(js, 'device'));
+  const bt = path.join(root, 'bt0');
+  fs.mkdirSync(path.join(bt, 'id'), { recursive: true });
+  fs.mkdirSync(path.join(bt, 'capabilities'), { recursive: true });
+  fs.mkdirSync(path.join(root, 'drivers', 'xpadneo'), { recursive: true });
+  fs.writeFileSync(path.join(bt, 'name'), 'Xbox Wireless Controller\n');
+  fs.writeFileSync(path.join(bt, 'phys'), 'bluetooth\n');
+  fs.writeFileSync(path.join(bt, 'id/bustype'), '0005\n');
+  fs.writeFileSync(path.join(bt, 'id/vendor'), '045e\n');
+  fs.writeFileSync(path.join(bt, 'id/product'), '0b13\n');
+  fs.writeFileSync(path.join(bt, 'capabilities/key'), '1000000000000 0 0 0 0\n');
+  const btParent = path.join(root, 'bt-parent');
+  fs.mkdirSync(btParent, { recursive: true });
+  fs.symlinkSync(path.join(root, 'drivers', 'xpadneo'), path.join(btParent, 'driver'));
+  fs.symlinkSync(btParent, path.join(bt, 'device'));
+  const ev = path.join(root, 'class', 'event3');
+  fs.mkdirSync(ev, { recursive: true });
+  fs.symlinkSync(bt, path.join(ev, 'device'));
+  const keys = path.join(root, 'keys0');
+  fs.mkdirSync(path.join(keys, 'id'), { recursive: true });
+  fs.mkdirSync(path.join(keys, 'capabilities'), { recursive: true });
+  fs.writeFileSync(path.join(keys, 'name'), 'Keyboard\n');
+  fs.writeFileSync(path.join(keys, 'id/bustype'), '0003\n');
+  fs.writeFileSync(path.join(keys, 'capabilities/key'), '0\n');
+  const keyEv = path.join(root, 'class', 'event9');
+  fs.mkdirSync(keyEv, { recursive: true });
+  fs.symlinkSync(keys, path.join(keyEv, 'device'));
+  return path.join(root, 'class');
+}
+
 (async () => {
+  check(parseBitmap('1000000000000 0 0 0 0', 64).has(0x130), 'capability bitmap bit 304 is BTN_A');
+  {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'xboxplay-input-'));
+    const found = listInputDevices(fakeInput(root), { bitsPerWord: 64 });
+    const pad = found.find(d => d.vendor === 0x2dc8);
+    check(!!pad && pad.kind === 'wired' && pad.product === 0x310a && pad.driver === 'xpad' && pad.name === '8BitDo Ultimate 2C',
+      '8BitDo Ultimate 2C USB 2dc8:310a on xpad is a wired controller');
+    const bt = found.find(d => d.driver === 'xpadneo');
+    check(!!bt && bt.kind === 'bluetooth', 'xpadneo pad is Bluetooth');
+    check(!found.some(d => d.name === 'Keyboard'), 'a plain keyboard is not a controller');
+    const summary = summarizeDevices(found);
+    check(summary.scanned && summary.wired.length === 1 && summary.bluetooth.length === 1, 'wired and Bluetooth are reported separately');
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+  check(Array.isArray(listInputDevices('/sys/class/input')), 'scanning /sys/class/input does not throw');
+  {
+    const choice = resolveController({ argv: ['--controller', 'wired'], env: { XBOXPLAY_CONTROLLER: 'bluetooth' }, saved: 'keyboard' });
+    check(choice.mode === 'wired' && choice.source === 'flag', 'the --controller flag wins');
+    check(resolveController({ argv: [], env: { XBOXPLAY_CONTROLLER: 'bt' }, saved: 'keyboard' }).mode === 'bluetooth', 'XBOXPLAY_CONTROLLER is accepted');
+    check(resolveController({ argv: [], env: {}, saved: 'keyboard' }).mode === 'keyboard', 'a saved choice is used');
+    check(resolveController({ argv: [], env: {}, saved: '' }).mode === 'auto', 'the default is auto');
+    check(resolveController({ argv: ['--controller=usb'], env: {}, saved: '' }).mode === 'wired', '--controller=usb means wired');
+  }
+  {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'xboxplay-settings-'));
+    check(readControllerSetting(dir) === '', 'a missing settings file is unset');
+    check(writeControllerSetting(dir, 'wired') === true && readControllerSetting(dir) === 'wired', 'the controller choice is saved');
+    check(writeControllerSetting(dir, 'nope') === false && readControllerSetting(dir) === 'wired', 'a bad choice is not saved');
+    const real = path.join(dir, 'real.json');
+    fs.writeFileSync(real, '{"controller":"wired","other":1}\n');
+    fs.unlinkSync(path.join(dir, 'settings.json'));
+    fs.symlinkSync('real.json', path.join(dir, 'settings.json'));
+    check(readControllerSetting(dir) === '' && writeControllerSetting(dir, 'bluetooth') === false, 'a symlink settings file is ignored');
+    check(fs.readFileSync(real, 'utf8').includes('"controller":"wired"'), 'the symlink target is left alone');
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+
   // --- V: one Y press per physical tap, held at least 60ms, short tap toggles ---
   {
     const { ctx, M, gp } = load();
@@ -262,6 +353,24 @@ function key(ctx, type, code, extra) { return ctx._fire(type, { code, repeat: fa
     key(ctx, 'keydown', 'KeyT');
     check(gp().buttons[10].pressed && gp().buttons[11].pressed, 'T is Focus (L3 + R3)');
     key(ctx, 'keyup', 'KeyT');
+  }
+
+  // A real controller is returned on its own. Keyboard mode is the way to force the virtual pad.
+  {
+    const { ctx } = load();
+    ctx._pads.list = [{ id: '8BitDo Ultimate 2C (Vendor: 2dc8 Product: 310a)', connected: true, mapping: 'standard', index: 0, buttons: [], axes: [0, 0, 0, 0] }];
+    const ids = vm.runInContext('[...navigator.getGamepads()].filter(Boolean).map(g => g.id)', ctx);
+    check(ids.length === 1 && ids[0].includes('8BitDo') && !ids.some(id => id.includes('XInput')), 'a real pad is returned on its own, with no virtual pad');
+    ctx.window.__XBOXPLAY_CONTROLLER = 'wired';
+    const wired = vm.runInContext('[...navigator.getGamepads()].filter(Boolean).map(g => g.id)', ctx);
+    check(wired.length === 1 && wired[0].includes('2dc8'), 'wired mode still passes the real controller through');
+    ctx.window.__XBOXPLAY_CONTROLLER = 'keyboard';
+    const forced = vm.runInContext('[...navigator.getGamepads()].filter(Boolean).map(g => g.id)', ctx);
+    check(forced.length === 1 && forced[0].includes('XInput') && !forced.some(id => id.includes('8BitDo')), 'keyboard mode forces the virtual pad even if a controller is plugged in');
+    ctx._pads.list = [];
+    ctx.window.__XBOXPLAY_CONTROLLER = 'auto';
+    const virt = vm.runInContext('[...navigator.getGamepads()].filter(Boolean).map(g => g.id)', ctx);
+    check(virt.length === 1 && virt[0].includes('XInput'), 'with no controller plugged in, the keyboard pad is used');
   }
 
   if (failed) {

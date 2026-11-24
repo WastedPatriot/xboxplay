@@ -10,15 +10,25 @@ Not affiliated with or endorsed by Microsoft. Xbox is a trademark of Microsoft. 
 
 ## Install
 
-Debian, Ubuntu, Parrot and similar:
+From a checkout:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/WastedPatriot/xboxplay/main/install.sh | bash
+git fetch origin polish
+git checkout polish
+./install.sh
 ```
 
-It installs git/node/npm with apt if they're missing, clones this repo to `~/xboxplay`, runs `npm ci` (Electron 45.4.1, pinned in the lockfile), and adds an `xboxplay` command and an app menu entry. It asks for sudo once to set up Chromium's sandbox helper. Run the same line again to update.
+That installs for your user. It runs `npm ci`, adds an `xboxplay` command, and puts an icon in the app menu so you can pin it. On MATE (Parrot's default desktop) it also adds a panel launcher, if a panel is already set up. Run it again whenever you want; it refreshes the same files and does not add a second launcher or change your git branch.
 
-If you'd rather read it first (fair), download `install.sh`, look through it, then run `bash install.sh`.
+Sudo is only for missing packages (git, Node, npm, via apt) and for Chromium's sandbox helper. If you skip the sandbox step it still runs, with `--no-sandbox`. A wired controller also needs your user in the `input` group. That is a separate sudo, and you have to log out afterwards:
+
+```bash
+sudo usermod -aG input "$USER"
+```
+
+The 8BitDo Ultimate 2C over USB uses the kernel `xpad` driver and shows up as `/dev/input/js*`. Electron reads it as a normal controller. Official Xbox Series pads over USB often need the `xone` driver instead. Bluetooth controllers use `xpadneo` or the kernel HID driver.
+
+You can still install with `curl -fsSL https://raw.githubusercontent.com/WastedPatriot/xboxplay/main/install.sh | bash`, which clones `main` into `~/xboxplay`. Set `XBOXPLAY_BRANCH` if you want a different branch. Read the script first if you'd rather not pipe it.
 
 ## Using it
 
@@ -62,7 +72,9 @@ Keys ease in over about 100ms instead of snapping to full, so steering and throt
 | F11 | Fullscreen |
 | Esc | Release the mouse (also closes the phone) |
 
-A real controller works too, it's passed straight through.
+A plugged-in controller is what the game sees. The keyboard pad is not added next to it, so the two don't get mixed up. In F3, pick Wired USB, Bluetooth, or Keyboard. Keyboard forces the keyboard pad even if a controller is plugged in. Until you pick, a controller is used when it's there and the keyboard is used when it isn't.
+
+`xboxplay --controller wired` (or `bluetooth`, or `keyboard`) does the same thing, and so does `XBOXPLAY_CONTROLLER=wired`. The choice is saved in `~/.config/XboxPlay/settings.json`. If the kind you picked isn't connected, XboxPlay says so. Wired is the USB `xpad` / `xone` path. Bluetooth is `xpadneo` or HID.
 
 F3 has mouse sensitivity (default 2), a trackpad boost (multiplies small movements), linear or smooth mouse curve, key smoothing (0 = instant), invert Y, auto-switch on a short V tap, and the mode badge. They're saved in the app. `XBOXPLAY_SENS=1.5 xboxplay` also sets the sensitivity.
 
@@ -86,6 +98,8 @@ bash ~/xboxplay/uninstall.sh          # keeps your login
 bash ~/xboxplay/uninstall.sh --purge  # also deletes ~/.config/XboxPlay
 ```
 
+That removes the command, the menu entry, the icon, and the MATE panel launcher. Running it again is fine.
+
 ## Security notes
 
 - The window only navigates to Microsoft/Xbox sign-in and play domains (`src/config.js`). Other links open in your normal browser.
@@ -93,6 +107,7 @@ bash ~/xboxplay/uninstall.sh --purge  # also deletes ~/.config/XboxPlay
 - Only pointer lock, fullscreen, keyboard lock, mic/camera, speaker selection and clipboard write are granted, and only to those domains.
 - No telemetry of its own. Logs never include URLs' query strings.
 - Your login lives in `~/.config/XboxPlay` like any browser profile.
+- The main process reads `/sys/class/input` to tell a wired controller from a Bluetooth one. It does not open the device. The pad itself is the browser's normal gamepad.
 
 Found something? See [SECURITY.md](SECURITY.md).
 

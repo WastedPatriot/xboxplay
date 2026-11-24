@@ -1,9 +1,10 @@
 'use strict';
-const { app, BrowserWindow, session, net, shell, ipcMain } = require('electron');
+const { app, BrowserWindow, session, net, shell, ipcMain, webContents } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const { INJECT_HOSTS, ALLOWED_PERMISSIONS, BX, isAllowedUrl, safeUrl } = require('./config');
+const { listInputDevices, summarizeDevices, resolveController, readControllerSetting, writeControllerSetting, normalizeController } = require('./input-devices');
 
 const START = 'https://www.xbox.com/play';
 const DEBUG = process.env.XBOXPLAY_DEBUG === '1';
@@ -11,6 +12,31 @@ const PARTITION = 'persist:xbox';
 // xbox.com blocks unknown browsers, so present as plain Chrome on Linux (same engine version).
 const CHROME_UA = `Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${process.versions.chrome.split('.')[0]}.0.0.0 Safari/537.36`;
 const log = (...a) => console.log('[XboxPlay]', ...a);
+let controllerMode = 'auto';
+let lastDeviceLog = '';
+
+function broadcast(code) {
+  for (const wc of webContents.getAllWebContents()) {
+    try { wc.executeJavaScript(code).catch(() => {}); } catch {}
+  }
+}
+function deviceSummary() {
+  try { return summarizeDevices(listInputDevices()); }
+  catch { return { wired: [], bluetooth: [], scanned: false }; }
+}
+function publishDevices() {
+  const summary = deviceSummary();
+  const payload = JSON.stringify(summary);
+  if (payload !== lastDeviceLog) {
+    lastDeviceLog = payload;
+    const found = (summary.wired || []).concat(summary.bluetooth || []);
+    log(found.length ? 'controllers: ' + found.join(', ') : 'no wired or Bluetooth controller seen');
+  }
+  broadcast('window.__XBOXPLAY_DEVICES=' + payload + '; if (window.__xboxplayUI && window.__xboxplayUI.controllerHint) window.__xboxplayUI.controllerHint();');
+}
+function frameOk(e) {
+  try { return isAllowedUrl(e.senderFrame && e.senderFrame.url); } catch { return false; }
+}
 
 app.setName('XboxPlay');
 app.userAgentFallback = CHROME_UA;
@@ -132,6 +158,7 @@ function createWindow() {
   let retries = 0;
   wc.on('did-finish-load', () => {
     wc.setAudioMuted(false);
+    publishDevices();
     setTimeout(() => {
       if (wc.getURL().includes('play.xbox.com') && /Bad Request|Invalid URL/i.test(wc.getTitle()) && retries++ < 2) wc.loadURL('https://play.xbox.com/');
     }, 1500);
@@ -141,8 +168,33 @@ function createWindow() {
   return win;
 }
 
+ipcMain.handle('xboxplay:controller-set', (e, mode) => {
+  if (!frameOk(e)) return controllerMode;
+  const next = normalizeController(mode);
+  if (!next) return controllerMode;
+  controllerMode = next;
+  try { writeControllerSetting(app.getPath('userData'), next); }
+  catch { log('could not save controller choice'); }
+  broadcast('window.__XBOXPLAY_CONTROLLER=' + JSON.stringify(next) + ';');
+  publishDevices();
+  return next;
+});
+
 app.on('web-contents-created', (e, wc) => wc.on('will-attach-webview', ev => ev.preventDefault()));
-app.whenReady().then(async () => { await loadBX(); createWindow(); });
+app.whenReady().then(async () => {
+  const saved = readControllerSetting(app.getPath('userData'));
+  const choice = resolveController({ argv: process.argv, env: process.env, saved });
+  controllerMode = choice.mode;
+  if (choice.source === 'flag' || choice.source === 'env') {
+    try { writeControllerSetting(app.getPath('userData'), choice.mode); } catch {}
+  }
+  OWN_SCRIPTS.unshift({ name: 'controller', code: 'window.__XBOXPLAY_CONTROLLER=' + JSON.stringify(choice.mode) + ';' });
+  if (choice.source !== 'default') log('controller:', choice.mode);
+  await loadBX();
+  createWindow();
+  publishDevices();
+  setInterval(publishDevices, 2000);
+});
 app.on('second-instance', () => { const w = BrowserWindow.getAllWindows()[0]; if (w) { if (w.isMinimized()) w.restore(); w.focus(); } });
 app.on('window-all-closed', () => app.quit());
 module.exports = { createWindow };

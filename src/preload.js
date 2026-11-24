@@ -1,7 +1,11 @@
 'use strict';
 // Runs sandboxed in an isolated world. Asks the main process for the scripts this page should get,
 // then runs them in the page's main world before any page script.
-const { ipcRenderer, webFrame } = require('electron');
+const { contextBridge, ipcRenderer, webFrame } = require('electron');
+
+contextBridge.exposeInMainWorld('xboxplayHost', {
+  setController(mode) { return ipcRenderer.invoke('xboxplay:controller-set', mode); },
+});
 
 function safeGet(k) { try { return window.localStorage.getItem(k); } catch { return null; } }
 let scripts = [];

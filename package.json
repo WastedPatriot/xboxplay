@@ -9,7 +9,7 @@
   "repository": { "type": "git", "url": "https://github.com/WastedPatriot/xboxplay.git" },
   "scripts": {
     "start": "electron .",
-    "check": "node --check src/main.js && node --check src/preload.js && node --check src/config.js && node --check src/mkb.js && node --check src/overlay.js",
+    "check": "node --check src/main.js && node --check src/preload.js && node --check src/config.js && node --check src/mkb.js && node --check src/overlay.js && node --check src/input-devices.js && node test/unit.js",
     "smoke": "electron test/smoke.js"
   },
   "dependencies": {
