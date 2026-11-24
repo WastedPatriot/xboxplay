@@ -170,6 +170,10 @@ That removes the command, the menu entry, the icon, and the MATE panel launcher.
 
 Found something? See [SECURITY.md](SECURITY.md).
 
+## Ideas / not yet
+
+Steam Deck and other Linux handhelds are a possible later step, using the AppImage. Android might come after that. Old consoles such as the PSP and 3DS are not feasible.
+
 ## License
 
 MIT
