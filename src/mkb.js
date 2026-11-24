@@ -163,7 +163,9 @@
     const real = Array.from(origGP.call(this) || []);
     // Turning the layer off keeps a neutral pad plugged in (unless a real controller is there), so the game
     // doesn't throw a controller-disconnected error.
-    if (!M.enabled && (!announced || real.some(Boolean))) return real;
+    // A real controller (wired or Bluetooth) always wins: hand it to the game on its own.
+    if (real.some(Boolean)) return real;
+    if (!M.enabled && !announced) return real;
     slot = real.findIndex(p => !p); if (slot < 0) slot = real.length;
     while (real.length < 4) real.push(null);
     real[slot] = pad(slot); gpCalls++; return real;
