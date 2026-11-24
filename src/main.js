@@ -1,5 +1,5 @@
 'use strict';
-const { app, BrowserWindow, session, net, shell, ipcMain, webContents } = require('electron');
+const { app, BrowserWindow, session, net, shell, ipcMain, webContents, powerSaveBlocker } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
@@ -45,15 +45,26 @@ else {
   app.commandLine.appendSwitch('ignore-gpu-blocklist');
   app.commandLine.appendSwitch('enable-gpu-rasterization');
   app.commandLine.appendSwitch('enable-zero-copy');
+  // Hardware decode on Linux. The GL path is the safe one. Zero-copy and the
+  // driver bypass help some GPUs and black-screen others, so they stay opt-in.
+  let video = 'AcceleratedVideoDecodeLinuxGL,VaapiVideoDecoder';
+  if (process.env.XBOXPLAY_VAAPI === '1') video += ',AcceleratedVideoDecodeLinuxZeroCopyGL,VaapiIgnoreDriverChecks,VaapiOnNvidiaGPUs';
+  app.commandLine.appendSwitch('enable-features', video);
 }
+// A stream dies if Chromium decides the window is in the background.
+app.commandLine.appendSwitch('disable-background-timer-throttling');
+app.commandLine.appendSwitch('disable-renderer-backgrounding');
+app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
+app.commandLine.appendSwitch('disable-features', 'IntensiveWakeUpThrottling,CalculateNativeWinOcclusion');
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 if (!app.requestSingleInstanceLock()) app.quit();
 
 // ---- injected scripts ----------------------------------------------------
 const read = f => fs.readFileSync(path.join(__dirname, f), 'utf8');
-const OWN_SCRIPTS = [{ name: 'overlay', code: read('overlay.js') }, { name: 'mkb', code: read('mkb.js') }];
+const OWN_SCRIPTS = [{ name: 'stream', code: read('stream.js') }, { name: 'overlay', code: read('overlay.js') }, { name: 'mkb', code: read('mkb.js') }];
 const sens = parseFloat(process.env.XBOXPLAY_SENS);
 if (sens > 0) OWN_SCRIPTS.unshift({ name: 'sens', code: `window.__XBOXPLAY_SENS=${JSON.stringify(String(sens))}` });
+if (process.env.XBOXPLAY_QUALITY) OWN_SCRIPTS.unshift({ name: 'quality', code: 'window.__XBOXPLAY_QUALITY=' + JSON.stringify(String(process.env.XBOXPLAY_QUALITY)) + ';' });
 if (DEBUG) OWN_SCRIPTS.unshift({ name: 'debug', code: 'window.__XBOXPLAY_DEBUG=1' });
 
 const BX_FILE = () => path.join(app.getPath('userData'), `better-xcloud-${BX.version}.user.js`);
@@ -100,6 +111,7 @@ function webPreferences() {
 }
 
 function lockDown(wc) {
+  try { wc.setBackgroundThrottling(false); } catch {}
   const guard = (e, url) => {
     if (isAllowedUrl(url)) return;
     e.preventDefault(); log('blocked navigation to', safeUrl(url));
@@ -192,6 +204,8 @@ app.whenReady().then(async () => {
   if (choice.source !== 'default') log('controller:', choice.mode);
   await loadBX();
   createWindow();
+  try { powerSaveBlocker.start('prevent-display-sleep'); }
+  catch { log('could not keep the display awake'); }
   publishDevices();
   setInterval(publishDevices, 2000);
 });

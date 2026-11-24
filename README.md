@@ -78,6 +78,16 @@ A plugged-in controller is what the game sees. The keyboard pad is not added nex
 
 F3 has mouse sensitivity (default 2), a trackpad boost (multiplies small movements), linear or smooth mouse curve, key smoothing (0 = instant), invert Y, auto-switch on a short V tap, and the mode badge. They're saved in the app. `XBOXPLAY_SENS=1.5 xboxplay` also sets the sensitivity.
 
+## Stream
+
+The window stays awake while XboxPlay is open, and Chromium is told not to throttle it when another window covers it. On Linux it asks for VA-API hardware decode. If the picture is black or the app crashes, start it with `XBOXPLAY_SAFE=1`, which turns GPU acceleration off. `XBOXPLAY_VAAPI=1` also tries zero-copy decode. That is faster on some GPUs and broken on others.
+
+While a game is streaming, the top right shows delay and bitrate. `HW` means the video decoder reported hardware decode. If the connection stays poor (high delay or packet loss) it says so, once, until it recovers.
+
+If the stream drops, XboxPlay waits a few seconds, then tries to reconnect up to three times. The first try restarts the network path. After that it clicks a Reconnect button on the page if there is one. Then it asks you to press F5. Turn this off in F3.
+
+F3 also has stream quality. Auto leaves Xbox's bitrate alone and keeps the playback buffer short. Stable asks for about 6 Mb/s and leaves the buffer alone. High asks for about 15 Mb/s. The bitrate applies the next time the stream connects. `XBOXPLAY_QUALITY=stable` (or `high`, or `auto`) is the same choice when you haven't picked one in F3 yet.
+
 ## Better xCloud
 
 On the old `www.xbox.com/play` site the app also loads [Better xCloud](https://github.com/redphx/better-xcloud) (pinned to v6.7.13, checked against a SHA-256 before it runs). It doesn't work on the new `play.xbox.com` site yet, which is why the built-in keyboard and mouse exists. You can turn Better xCloud off in F3, or with `XBOXPLAY_BX=0`.
@@ -85,7 +95,7 @@ On the old `www.xbox.com/play` site the app also loads [Better xCloud](https://g
 ## Known issues
 
 - Xbox is moving people to the new `play.xbox.com` site. Right after that redirect it sometimes shows "Bad Request". The app retries; if it's still stuck press F5. To go back to the old site: sign in, click your profile picture, Exit preview.
-- If the stream sits on "connecting" forever, try `XBOXPLAY_SAFE=1 xboxplay` (turns off GPU acceleration). Also check whether a VPN or Tailscale is up.
+- If the stream sits on "connecting" forever, or the picture is black, try `XBOXPLAY_SAFE=1 xboxplay` (turns off GPU acceleration, including VA-API). Also check whether a VPN or Tailscale is up.
 - The mouse goes through a virtual stick, so aiming feels like a controller with a very fast thumb. Tune the sensitivity and curve in F3.
 - Auto-switch only knows you tapped V, not whether you actually got in. If the layout is wrong, press G to put it back.
 - Sound should start with the stream. If it doesn't, click once inside the window.

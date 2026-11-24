@@ -18,6 +18,13 @@ check(/setAudioMuted\(\s*false\s*\)/.test(mainSrc), 'webContents is explicitly u
 const cfg = fs.readFileSync(path.join(__dirname, '../src/config.js'), 'utf8');
 check(cfg.includes("'media'") && cfg.includes('speaker-selection'), 'media and speaker-selection are allowed');
 check(mainSrc.includes("OWN_SCRIPTS.unshift({ name: 'debug'"), 'debug flag is injected when XBOXPLAY_DEBUG=1');
+check(mainSrc.includes("name: 'stream'"), 'stream helper is injected');
+check(mainSrc.includes('backgroundThrottling: false'), 'the page is not background-throttled');
+check(mainSrc.includes('disable-background-timer-throttling') && mainSrc.includes('disable-renderer-backgrounding') && mainSrc.includes('disable-backgrounding-occluded-windows'), 'Chromium is told not to throttle a covered window');
+check(mainSrc.includes("powerSaveBlocker.start('prevent-display-sleep')"), 'the display is kept awake');
+const safeAt = mainSrc.indexOf("XBOXPLAY_SAFE === '1'");
+const vaAt = mainSrc.indexOf('AcceleratedVideoDecodeLinuxGL');
+check(safeAt >= 0 && vaAt > safeAt && mainSrc.includes('XBOXPLAY_VAAPI'), 'VA-API decode is requested only when GPU acceleration is on');
 
 const mkbSrc = fs.readFileSync(path.join(__dirname, '../src/mkb.js'), 'utf8');
 
@@ -371,6 +378,109 @@ function fakeInput(root) {
     ctx.window.__XBOXPLAY_CONTROLLER = 'auto';
     const virt = vm.runInContext('[...navigator.getGamepads()].filter(Boolean).map(g => g.id)', ctx);
     check(virt.length === 1 && virt[0].includes('XInput'), 'with no controller plugged in, the keyboard pad is used');
+  }
+
+  // Stream quality, stats, and reconnect. The page script is loaded on its own so it can wrap RTCPeerConnection.
+  {
+    const store = {};
+    const clicks = [];
+    const button = { tagName: 'BUTTON', textContent: 'Reconnect', click() { clicks.push('reconnect'); } };
+    const resume = { tagName: 'BUTTON', textContent: 'Resume', click() { clicks.push('resume'); } };
+    function OrigPC() {
+      this.iceConnectionState = 'new';
+      this.connectionState = 'new';
+      this.local = null;
+      this.receivers = [{ track: { kind: 'video' }, playoutDelayHint: 1 }];
+      this.restarted = 0;
+    }
+    OrigPC.prototype.setLocalDescription = function (desc) { this.local = desc; return Promise.resolve(); };
+    OrigPC.prototype.setRemoteDescription = function (desc) { this.remote = desc; return Promise.resolve(); };
+    OrigPC.prototype.getReceivers = function () { return this.receivers; };
+    OrigPC.prototype.addEventListener = function () {};
+    OrigPC.prototype.restartIce = function () { this.restarted++; };
+    OrigPC.prototype.getStats = function () { return Promise.resolve({ forEach() {} }); };
+    const ctx = {
+      window: {
+        localStorage: {
+          getItem(k) { return Object.prototype.hasOwnProperty.call(store, k) ? store[k] : null; },
+          setItem(k, v) { store[k] = String(v); },
+        },
+        RTCPeerConnection: OrigPC,
+        __xboxplayUI: { toast() {}, streamStatus() {} },
+      },
+      document: {
+        hidden: false,
+        querySelectorAll(sel) { return String(sel).includes('button') ? [button, resume] : []; },
+      },
+      console, setTimeout, clearTimeout, setInterval, clearInterval,
+      Map, Promise, Date, Math, Number, String, JSON,
+    };
+    ctx.window.window = ctx.window;
+    vm.createContext(ctx);
+    vm.runInContext(fs.readFileSync(path.join(__dirname, '../src/stream.js'), 'utf8'), ctx);
+    const api = vm.runInContext('window.__xboxplayStream', ctx);
+    const sdp = [
+      'v=0',
+      'm=audio 9 UDP/TLS/RTP/SAVPF 111',
+      'c=IN IP4 0.0.0.0',
+      'a=sendrecv',
+      'b=AS:64',
+      'm=video 9 UDP/TLS/RTP/SAVPF 96',
+      'c=IN IP4 0.0.0.0',
+      'a=recvonly',
+      'b=AS:20000',
+      'b=TIAS:20000000',
+      '',
+    ].join('\r\n');
+    const capped = api.applyBitrate(sdp, 6000);
+    check(capped.includes('b=AS:64') && capped.includes('b=AS:6000') && !capped.includes('b=AS:20000'), 'a video bandwidth cap replaces the video line and leaves audio alone');
+    check(capped.includes('b=TIAS:6000000'), 'TIAS is kept in step with the video cap');
+    check((capped.match(/b=AS:6000/g) || []).length === 1, 'the video cap is not written twice');
+    check(api.applyBitrate(sdp, 0) === sdp, 'auto does not rewrite the offer');
+    const bare = 'm=video 9 UDP/TLS/RTP/SAVPF 96\r\nc=IN IP4 0.0.0.0\r\na=recvonly\r\n';
+    const added = api.applyBitrate(bare, 15000);
+    check(added.indexOf('b=AS:15000') !== -1 && added.indexOf('b=AS:15000') < added.indexOf('a=recvonly'), 'a missing video cap is inserted before the attributes');
+    const prev = { t: 1000, bytes: 0, recv: 0, lost: 0 };
+    const sample = api.readStats([
+      { type: 'inbound-rtp', kind: 'video', bytesReceived: 1000000, packetsReceived: 99, packetsLost: 1, timestamp: 2000, frameWidth: 1920, frameHeight: 1080, decoderImplementation: 'ExternalDecoder (VAAPI)' },
+      { type: 'candidate-pair', nominated: true, state: 'succeeded', currentRoundTripTime: 0.042 },
+    ], prev);
+    check(sample && Math.abs(sample.bitrateMbps - 8) < 0.01 && Math.abs(sample.lossPct - 1) < 0.01, 'bitrate and loss come from the video counters, got ' + (sample && sample.bitrateMbps) + ' / ' + (sample && sample.lossPct));
+    check(sample.rttMs === 42 && sample.hardware && sample.width === 1920, 'round trip and a VA-API decoder are reported');
+    check(api.healthOf(sample) === 'good', '42 ms and 1% loss is a good connection');
+    check(api.healthOf({ rttMs: 90, lossPct: 0 }) === 'fair', 'delay around 90 ms is a fair connection');
+    check(api.healthOf({ rttMs: 180, lossPct: 1 }) === 'poor', 'high delay is a poor connection');
+    check(api.healthOf({ rttMs: 40, lossPct: 6 }) === 'poor', 'high packet loss is a poor connection');
+    check(api.poorMessage({ rttMs: 180, lossPct: 6 }).includes('180 ms') && api.poorMessage({ rttMs: 180, lossPct: 6 }).includes('6% packet loss'), 'the poor-connection message names the delay and the loss');
+    const h = { poorRun: 0, warned: false };
+    check(api.noteHealth(h, 'poor') === false && api.noteHealth(h, 'poor') === true && api.noteHealth(h, 'poor') === false, 'the poor-connection warning fires once, after it stays poor');
+    check(api.noteHealth(h, 'good') === false && api.noteHealth(h, 'poor') === false && api.noteHealth(h, 'poor') === true, 'recovery arms the warning again');
+    const link = api.freshLink();
+    check(api.onLinkState(link, 'disconnected', 1000) === 'ignore', 'a stream that never connected is not reconnected');
+    check(api.onLinkState(link, 'connected', 0) === 'up', 'a connected stream is marked up');
+    check(api.onLinkState(link, 'failed', 1000) === 'down', 'a failed stream is marked down');
+    check(api.nextReconnect(link, 3000, true) === 'none', 'reconnect waits a few seconds');
+    check(api.nextReconnect(link, 6000, true) === 'restart', 'the first reconnect restarts the network path');
+    check(api.nextReconnect(link, 10000, true) === 'none', 'reconnect does not hammer');
+    check(api.nextReconnect(link, 14000, true) === 'click' && api.nextReconnect(link, 22000, true) === 'click', 'later attempts click the page button');
+    check(api.nextReconnect(link, 30000, true) === 'giveup', 'reconnect stops after three tries');
+    const again = api.freshLink();
+    api.onLinkState(again, 'connected', 0);
+    api.onMedia(again, true, 1000);
+    api.onMedia(again, false, 9000);
+    check(api.nextReconnect(again, 12000, true) === 'click', 'video that stops arriving is treated as a dropped stream');
+    check(api.nextReconnect(again, 20000, false) === 'none', 'reconnect can be turned off');
+    const found = api.findReconnect(ctx.document);
+    check(found === button, 'only a Reconnect button is clicked, not Resume');
+    store['xboxplay.quality'] = 'stable';
+    const pc = vm.runInContext('new window.RTCPeerConnection()', ctx);
+    await vm.runInContext('pc.setLocalDescription({ type: "offer", sdp })', Object.assign(ctx, { pc, sdp }));
+    check(pc.local && pc.local.sdp.includes('b=AS:6000') && !pc.local.sdp.includes('b=AS:20000'), 'stable quality rewrites the local offer');
+    await vm.runInContext('pc.setRemoteDescription({ type: "answer", sdp: "v=0" })', ctx);
+    check(pc.receivers[0].playoutDelayHint === 1, 'stable quality leaves the playback buffer alone');
+    store['xboxplay.quality'] = 'auto';
+    await vm.runInContext('pc.setRemoteDescription({ type: "answer", sdp: "v=0" })', ctx);
+    check(pc.receivers[0].playoutDelayHint === 0, 'auto asks the playback buffer to stay short');
   }
 
   if (failed) {

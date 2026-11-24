@@ -38,6 +38,10 @@
     .badge { position: fixed; top: 14px; left: 14px; z-index: 2147483646; display: flex; align-items: center; gap: 6px; padding: 5px 9px;
       border-radius: 8px; background: rgba(18,20,22,.6); border: 1px solid rgba(255,255,255,.08); color: #cfd3d6;
       font: 600 11px "Segoe UI", system-ui, sans-serif; letter-spacing: .04em; pointer-events: none; opacity: .75; }
+    .net { position: fixed; top: 14px; right: 14px; z-index: 2147483646; padding: 5px 9px; border-radius: 8px;
+      background: rgba(18,20,22,.6); border: 1px solid rgba(255,255,255,.08); color: #cfd3d6;
+      font: 600 11px "Segoe UI", system-ui, sans-serif; letter-spacing: .02em; pointer-events: none; opacity: .85; }
+    .net.fair { color: #e6c07b; } .net.poor { color: #e06c6c; border-color: rgba(224,108,108,.45); }
     .badge svg { width: 15px; height: 15px; fill: #3ddc5b; }
     select { background: #222427; color: #eee; border: 1px solid #3a3d42; border-radius: 6px; padding: 4px 6px; font: inherit; }
     .note { font-size: 12.5px; color: #9aa0a6; margin: 0 0 8px; min-height: 1.2em; }
@@ -123,11 +127,20 @@
       pick.value = current;
       statusEl = el('p', { class: 'note' }, '');
       controllerHint();
+      const quality = el('select', { onchange: e => LS.setItem('xboxplay.quality', e.target.value) },
+        el('option', { value: 'auto' }, 'Auto'),
+        el('option', { value: 'stable' }, 'Stable, about 6 Mb/s'),
+        el('option', { value: 'high' }, 'High, about 15 Mb/s'));
+      quality.value = LS.getItem('xboxplay.quality') || (window.__XBOXPLAY_QUALITY || 'auto');
+      if (quality.value !== 'auto' && quality.value !== 'stable' && quality.value !== 'high') quality.value = 'auto';
       return el('div', { class: 'card' },
         el('h1', null, 'Settings'),
         el('p', { class: 'sub' }, 'Saved on this computer. Changes apply straight away.'),
         el('label', { class: 'set' }, el('span', null, 'Controller'), pick),
         statusEl,
+        el('label', { class: 'set' }, el('span', null, 'Stream quality'), quality),
+        el('p', { class: 'note' }, 'Bitrate applies the next time the stream connects.'),
+        toggle('reconnect', 'Reconnect if the stream drops', '1'),
         slider('sens', 'Mouse sensitivity', 0.2, 8, 0.1, sensDef, v => v.toFixed(1)),
         slider('trackpad', 'Trackpad boost (small movements)', 1, 6, 0.1, 2.5, v => v.toFixed(1) + '×'),
         slider('antidz', 'Aim kick (beats the game deadzone)', 0, 0.5, 0.01, 0.22, v => v.toFixed(2)),
@@ -206,6 +219,16 @@
   }
 
   window.addEventListener('keydown', e => { if (e.code === 'Escape' && panel) { close(); e.preventDefault(); } }, true);
-  window.__xboxplayUI = Object.freeze({ guide, settings, toast, badge, close, controllerHint, isOpen: () => !!panel });
+  let netEl = null;
+  function streamStatus(info) {
+    if (!document.documentElement) return;
+    mount();
+    if (!info || !info.text) { if (netEl) netEl.remove(); netEl = null; return; }
+    if (!netEl) { netEl = el('div', { class: 'net' }); root.appendChild(netEl); }
+    netEl.className = 'net' + (info.level === 'poor' ? ' poor' : info.level === 'fair' ? ' fair' : '');
+    netEl.textContent = info.text;
+  }
+
+  window.__xboxplayUI = Object.freeze({ guide, settings, toast, badge, close, controllerHint, streamStatus, isOpen: () => !!panel });
   setInterval(() => { try { controllerHint(); } catch (e) {} }, 1000);
 })();
