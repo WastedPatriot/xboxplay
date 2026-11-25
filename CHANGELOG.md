@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-Closing the app ends the console session, and the next open clears the xbox.com site cache, so remote play is not black after a reopen. Clicking away keeps the page visible and focused so the picture does not pause. A second launch brings the open window forward. A picture that sits still for a few seconds is resumed.
+Closing the app ends the console session, and the next open clears the xbox.com site cache, so remote play is not black after a reopen. Clicking away keeps the page visible and focused so the picture does not pause. A second launch brings the open window forward. A picture that sits still for a few seconds is resumed. Coming back to the window puts the real controller back in front of the keyboard pad. F4 does the same thing by hand.
 
 ## 1.0.0
 

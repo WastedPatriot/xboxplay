@@ -208,10 +208,30 @@
     if (typeof Navigator !== 'function' || !Navigator.prototype) return;
     const cur = Navigator.prototype.getGamepads;
     if (typeof cur !== 'function' || cur.__xboxplayIdle) return;
+    let nudged = false;
+    function anyInput(pad) {
+      if (!pad) return false;
+      try {
+        if (Array.from(pad.buttons || []).some(b => b && (b.pressed || b.value > 0))) return true;
+        if (Array.from(pad.axes || []).some(a => Math.abs(a) > 0.05)) return true;
+      } catch (e) {}
+      return false;
+    }
+    function realList(list) {
+      try {
+        const pads = window.__xboxplayPads;
+        if (pads && pads.realWins) return pads.realWins(list);
+      } catch (e) {}
+      return (list || []).filter(p => p && p.connected !== false && p.id !== 'Xbox 360 Controller (XInput STANDARD GAMEPAD)');
+    }
     function wrapped() {
       const list = Array.from(cur.call(this) || []);
+      // A real pad with any input wins immediately. The nudge is one sample, then the original pad is returned.
+      if (realList(list).some(anyInput)) { noteInput(); nudged = false; return list; }
       if (list.some(padBusy)) noteInput();
+      if (nudged) { nudged = false; nudgeUntil = 0; return list; }
       if (!considerNudge(Date.now())) return list;
+      nudged = true;
       return list.map(p => (p ? nudgePad(p) : p));
     }
     wrapped.__xboxplayIdle = true;

@@ -44,6 +44,8 @@ check(mainSrc.includes("name: 'stream'"), 'stream helper is injected');
 check(mainSrc.includes("name: 'idle'") && mainSrc.indexOf("name: 'mkb'") < mainSrc.indexOf("name: 'idle'"), 'idle helper is injected after the gamepad script');
 check(mainSrc.includes('backgroundThrottling: false'), 'the page is not background-throttled');
 check(mainSrc.includes("app.on('second-instance'") && mainSrc.includes('win.restore()') && mainSrc.includes('win.show()') && mainSrc.includes('win.focus()') && mainSrc.includes('__xboxplayStream.nudge'), 'a second launch raises the open window and nudges the picture');
+check(mainSrc.includes("k === 'F4'") && mainSrc.includes('reattach("manual")') && mainSrc.includes("win.on('focus'") && mainSrc.includes("win.on('restore'"), 'F4 and a raised window re-attach the controller');
+check(overlaySrc.includes('Re-attach controller') && overlaySrc.includes("'F4'") && overlaySrc.includes("reattach('manual')"), 'F3 and the guide can re-attach the controller');
 check(mainSrc.includes("name: 'session'") && mainSrc.indexOf("name: 'session'") < mainSrc.indexOf("name: 'stream'"), 'session helper is injected before the stream helper');
 check(mainSrc.includes('serviceworkers') && mainSrc.includes('cachestorage') && mainSrc.includes('cleared the xbox.com site cache'), 'xbox.com service worker caches are cleared on startup');
 check(mainSrc.includes('before-quit') && mainSrc.includes('__xboxplaySession'), 'closing the window stops the console session');
@@ -508,8 +510,15 @@ function tmpDir() { return fs.mkdtempSync(path.join(os.tmpdir(), 'xboxplay-keyma
     ctx.window.__XBOXPLAY_CONTROLLER = 'keyboard';
     const forced = vm.runInContext('[...navigator.getGamepads()].filter(Boolean).map(g => g.id)', ctx);
     check(forced.length === 1 && forced[0].includes('XInput') && !forced.some(id => id.includes('8BitDo')), 'keyboard mode forces the virtual pad even if a controller is plugged in');
-    ctx._pads.list = [];
     ctx.window.__XBOXPLAY_CONTROLLER = 'auto';
+    let replay = null;
+    ctx.window.addEventListener('gamepadconnected', e => { replay = e.gamepad; });
+    check(replay && replay.id.includes('8BitDo'), 'a new listener is given the real pad, not the keyboard pad');
+    ctx._pads.list = [];
+    ctx.window.__xboxplayPads = { holding() { return true; }, noteDelivered() {} };
+    const gap = vm.runInContext('[...navigator.getGamepads()].filter(Boolean).map(g => g.id)', ctx);
+    check(gap.length === 1 && gap[0].includes('8BitDo') && !gap.some(id => id.includes('XInput')), 'while focus returns, an empty poll does not hand over to the keyboard pad');
+    ctx.window.__xboxplayPads = null;
     const virt = vm.runInContext('[...navigator.getGamepads()].filter(Boolean).map(g => g.id)', ctx);
     check(virt.length === 1 && virt[0].includes('XInput'), 'with no controller plugged in, the keyboard pad is used');
   }
@@ -758,6 +767,8 @@ function tmpDir() { return fs.mkdtempSync(path.join(os.tmpdir(), 'xboxplay-keyma
     api.markIdle(Date.now() - api.NUDGE_AFTER);
     const moved = nav.getGamepads();
     check(moved[0] !== real && Math.abs(moved[0].axes[2] - 0.02) < 0.001 && real.axes[2] === 0, 'the pad the page reads is nudged only after the quiet wait');
+    const back = nav.getGamepads();
+    check(back[0] === real && real.axes[2] === 0, 'the nudge hands the original pad back');
     real.axes[2] = 0.4;
     const busy = nav.getGamepads();
     check(busy[0] === real && real.axes[2] === 0.4, 'real stick movement is passed through');
@@ -860,6 +871,39 @@ function tmpDir() { return fs.mkdtempSync(path.join(os.tmpdir(), 'xboxplay-keyma
     check(calls.some(c => c.method === 'POST' && c.url === PLAY), 'the new session start still goes out');
     const stopped = await vm.runInContext('window.__xboxplaySession.stop()', ctx);
     check(stopped === true, 'stop deletes the console session');
+  }
+
+  {
+    const ctx = {
+      window: { addEventListener() {}, BX_STREAM_SETTINGS: { xCloudPollingMode: 'none' } },
+      document: { addEventListener() {}, hidden: false, querySelectorAll() { return []; }, querySelector() { return null; } },
+      navigator: { getGamepads() { return []; } },
+      Navigator: function Navigator() {},
+      console, setTimeout, clearTimeout, setInterval, clearInterval, Date, Object, Array, Set, String, Number, Math,
+    };
+    ctx.Navigator.prototype = { getGamepads() { return []; } };
+    ctx.window.window = ctx.window;
+    vm.createContext(ctx);
+    vm.runInContext(fs.readFileSync(path.join(__dirname, '../src/pads.js'), 'utf8'), ctx);
+    const api = vm.runInContext('window.__xboxplayPads', ctx);
+    const eight = { id: '8BitDo Ultimate 2C Wireless', connected: true, index: 0, buttons: [{ pressed: true, value: 1 }], axes: [0, 0, 0, 0] };
+    const virt = { id: 'Xbox 360 Controller (XInput STANDARD GAMEPAD)', connected: true, index: 1, buttons: [], axes: [0, 0, 0, 0] };
+    const wins = api.realWins([null, virt, eight]);
+    check(wins.length === 1 && wins[0] === eight, 'a real pad wins over the keyboard pad');
+    const mgr = { mode: '', setPollingMode(mode) { this.mode = mode; } };
+    const found = api.collectManagers({ player: { input: mgr } });
+    check(found.length === 1 && found[0] === mgr, 'the polling manager is found on the player');
+    let st = { since: 0, sig: '', cool: 0 };
+    st = api.shouldReattach(st, { live: true, poll: 'all', physicalSig: '0:0:0', delivered: true }, 1000).state;
+    let step = api.shouldReattach(st, { live: true, poll: 'none', physicalSig: '0:1:0', delivered: false }, 1000);
+    check(step.action === 'ok', 'one changed sample does not re-attach yet');
+    step = api.shouldReattach(step.state, { live: true, poll: 'none', physicalSig: '0:1:0', delivered: false }, 3000);
+    check(step.action === 'reattach', 'polling left at none for 2 seconds re-attaches the controller');
+    step = api.shouldReattach(step.state, { live: true, poll: 'none', physicalSig: '0:1:1', delivered: false }, 3200);
+    check(step.action === 'ok', 're-attach waits before it tries again');
+    step = api.shouldReattach({ since: 0, sig: '0:0:0', cool: 0 }, { live: false, poll: 'none', physicalSig: '0:1:0', delivered: false }, 9000);
+    check(step.action === 'ok', 'a controller change outside a stream does not re-attach');
+    check(api.normalizePoll('All') === 'all' && api.normalizePoll('NONE') === 'none', 'polling mode is read as all or none');
   }
 
   if (failed) {

@@ -81,6 +81,15 @@
     state() { const s = sample(); return { lx: s.axes[0], ly: s.axes[1], rx: s.axes[2], ry: s.axes[3], lt: s.down[6], rt: s.down[7] }; },
     refreshBadge() { badge(); },
     controllerMode() { return controllerMode(); },
+    releaseVirtual() {
+      if (controllerMode() === 'keyboard' || !exposed) return;
+      exposed = false;
+      try {
+        const e = new Event('gamepaddisconnected');
+        Object.defineProperty(e, 'gamepad', { value: pad(slot) });
+        window.dispatchEvent(e);
+      } catch (e) {}
+    },
     setController(mode) {
       const m = normalizeMode(mode);
       if (!m) return;
@@ -211,27 +220,57 @@
     if (free >= 0) { slot = free; return slot; }
     return -1;
   }
+  function isRealPad(p) {
+    return !!(p && p.connected !== false && p.id !== PAD_ID);
+  }
+  let lastReal = null;
+  let lastPhysicalAt = 0;
+  function deliver(list) {
+    try {
+      const pads = window.__xboxplayPads;
+      if (pads && pads.noteDelivered) pads.noteDelivered(list);
+    } catch (e) {}
+    return list;
+  }
   Navigator.prototype.getGamepads = function () {
     const real = Array.from(origGP.call(this) || []);
+    const phys = real.filter(isRealPad);
     // A real controller (wired or Bluetooth, including the 8BitDo on xpad) is what the game reads.
     // It is returned on its own, not mixed with the keyboard pad. Keyboard mode forces the virtual pad.
-    if (controllerMode() !== 'keyboard' && real.some(Boolean)) return real;
-    if (!M.enabled && !exposed) return controllerMode() === 'keyboard' ? [] : real;
+    // A focus change can make Chromium return an empty list for a moment. Keep the real pad for that gap
+    // so the keyboard pad does not take the slot.
+    if (controllerMode() !== 'keyboard' && phys.length) {
+      lastReal = real.slice();
+      lastPhysicalAt = performance.now();
+      return deliver(real);
+    }
+    // Only while focus is coming back. An unplugged pad still falls through to the keyboard.
+    let gap = false;
+    try { gap = !!(window.__xboxplayPads && window.__xboxplayPads.holding && window.__xboxplayPads.holding()); } catch (e) {}
+    if (controllerMode() !== 'keyboard' && gap && lastReal && performance.now() - lastPhysicalAt < 8000) return deliver(lastReal);
+    if (!M.enabled && !exposed) return deliver(controllerMode() === 'keyboard' ? [] : real);
     const base = controllerMode() === 'keyboard' ? [] : real.slice();
     const at = place(base);
-    if (at < 0) return base;
+    if (at < 0) return deliver(base);
     exposed = true;
-    base[at] = pad(at); gpCalls++; return base;
+    base[at] = pad(at); gpCalls++; return deliver(base);
   };
   setInterval(() => { if (gpCalls || keysLive()) debug('game read the virtual pad ' + gpCalls + ' times in 3s'); gpCalls = 0; }, 3000);
 
-  function emitTo(fn) {
-    if (!M.enabled) return;
-    exposed = true;
+  function sendPad(fn, gamepad) {
     const e = new Event('gamepadconnected');
-    Object.defineProperty(e, 'gamepad', { value: pad(slot) });
+    Object.defineProperty(e, 'gamepad', { value: gamepad });
     if (typeof fn === 'function') fn.call(window, e);
     else if (fn && fn.handleEvent) fn.handleEvent(e);
+  }
+  function emitTo(fn) {
+    if (controllerMode() !== 'keyboard' && lastReal) {
+      const phys = lastReal.filter(isRealPad);
+      if (phys.length) { for (const p of phys) sendPad(fn, p); return; }
+    }
+    if (!M.enabled) return;
+    exposed = true;
+    sendPad(fn, pad(slot));
   }
   replayConnected = emitTo;
   function announce() {

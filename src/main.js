@@ -65,7 +65,7 @@ if (!app.requestSingleInstanceLock()) app.quit();
 
 // ---- injected scripts ----------------------------------------------------
 const read = f => fs.readFileSync(path.join(__dirname, f), 'utf8');
-const OWN_SCRIPTS = [{ name: 'session', code: read('session.js') }, { name: 'stream', code: read('stream.js') }, { name: 'overlay', code: read('overlay.js') }, { name: 'mkb', code: read('mkb.js') }, { name: 'idle', code: read('idle.js') }];
+const OWN_SCRIPTS = [{ name: 'session', code: read('session.js') }, { name: 'stream', code: read('stream.js') }, { name: 'overlay', code: read('overlay.js') }, { name: 'pads', code: read('pads.js') }, { name: 'mkb', code: read('mkb.js') }, { name: 'idle', code: read('idle.js') }];
 const sens = parseFloat(process.env.XBOXPLAY_SENS);
 if (sens > 0) OWN_SCRIPTS.unshift({ name: 'sens', code: `window.__XBOXPLAY_SENS=${JSON.stringify(String(sens))}` });
 if (process.env.XBOXPLAY_QUALITY) OWN_SCRIPTS.unshift({ name: 'quality', code: 'window.__XBOXPLAY_QUALITY=' + JSON.stringify(String(process.env.XBOXPLAY_QUALITY)) + ';' });
@@ -155,6 +155,7 @@ function createWindow() {
     if (k === 'F1') ui('guide');
     else if (k === 'F2') wc.executeJavaScript('window.__xboxplayMKB && window.__xboxplayMKB.toggle()').catch(() => {});
     else if (k === 'F3') ui('settings');
+    else if (k === 'F4') wc.executeJavaScript('window.__xboxplayPads && window.__xboxplayPads.reattach && window.__xboxplayPads.reattach("manual")').catch(() => {});
     else if (k === 'F5') wc.reload();
     else if (k === 'F11') win.setFullScreen(!win.isFullScreen());
     else if (DEBUG && (k === 'F12' || (i.control && i.shift && k.toLowerCase() === 'i'))) wc.toggleDevTools();
@@ -180,6 +181,15 @@ function createWindow() {
     }, 1500);
   });
 
+  const kickPads = () => {
+    try {
+      if (wc.isDestroyed()) return;
+      wc.executeJavaScript('window.__xboxplayPads && window.__xboxplayPads.reattach && window.__xboxplayPads.reattach()').catch(() => {});
+    } catch {}
+  };
+  win.on('focus', kickPads);
+  win.on('restore', kickPads);
+  win.on('show', kickPads);
   armClose(win);
   wc.loadURL(process.env.XBOXPLAY_URL && isAllowedUrl(process.env.XBOXPLAY_URL) ? process.env.XBOXPLAY_URL : START);
   return win;
@@ -305,6 +315,10 @@ function raiseWindow(win) {
   try { win.focus(); } catch {}
   try { app.focus({ steal: true }); } catch {}
   nudgePicture(win);
+  try {
+    const wc = win.webContents;
+    if (wc && !wc.isDestroyed()) wc.executeJavaScript('window.__xboxplayPads && window.__xboxplayPads.reattach && window.__xboxplayPads.reattach()').catch(() => {});
+  } catch {}
   log('raised the open window');
 }
 app.on('second-instance', () => {
