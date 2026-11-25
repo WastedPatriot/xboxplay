@@ -217,33 +217,44 @@
     wrapped.__xboxplayIdle = true;
     Navigator.prototype.getGamepads = wrapped;
   }
+  // A playing picture is told the real visibility, so the player can pause and resume
+  // when the window is covered. Lying about focus left the video element black.
+  function pictureShowing() {
+    try {
+      const doc = typeof document !== 'undefined' ? document : null;
+      if (!doc || typeof doc.querySelectorAll !== 'function') return false;
+      for (const v of doc.querySelectorAll('video')) {
+        if (v && v.videoWidth > 0 && !v.paused && v.srcObject) return true;
+      }
+    } catch (e) {}
+    return false;
+  }
+  let realHidden = null;
+  function pageHidden() {
+    try {
+      if (realHidden) return !!realHidden.call(typeof document !== 'undefined' ? document : null);
+    } catch (e) {}
+    return false;
+  }
   function overrideVisibility(obj, mark) {
     if (!obj || obj[mark]) return;
     const hidden = Object.getOwnPropertyDescriptor(obj, 'hidden');
     const state = Object.getOwnPropertyDescriptor(obj, 'visibilityState');
+    if (hidden && hidden.get && !realHidden) realHidden = hidden.get;
+    const cover = () => idleOn() && !pictureShowing();
     try {
       if (hidden && hidden.get && hidden.configurable !== false) {
-        Object.defineProperty(obj, 'hidden', { configurable: true, get() { return idleOn() ? false : hidden.get.call(this); } });
+        Object.defineProperty(obj, 'hidden', { configurable: true, get() { return cover() ? false : hidden.get.call(this); } });
       }
       if (state && state.get && state.configurable !== false) {
-        Object.defineProperty(obj, 'visibilityState', { configurable: true, get() { return idleOn() ? 'visible' : state.get.call(this); } });
+        Object.defineProperty(obj, 'visibilityState', { configurable: true, get() { return cover() ? 'visible' : state.get.call(this); } });
       }
       obj[mark] = true;
     } catch (e) {}
   }
   function keepVisible() {
     const Doc = typeof Document === 'function' ? Document.prototype : null;
-    if (Doc && !Doc.__xboxplayIdle) {
-      overrideVisibility(Doc, '__xboxplayIdle');
-      try {
-        if (typeof Doc.hasFocus === 'function' && !Doc.hasFocus.__xboxplayIdle) {
-          const orig = Doc.hasFocus;
-          const wrapped = function () { return idleOn() ? true : orig.call(this); };
-          wrapped.__xboxplayIdle = true;
-          Doc.hasFocus = wrapped;
-        }
-      } catch (e) {}
-    }
+    if (Doc && !Doc.__xboxplayIdle) overrideVisibility(Doc, '__xboxplayIdle');
     if (typeof document !== 'undefined') overrideVisibility(document, '__xboxplayVis');
   }
   function scan() {
@@ -267,7 +278,7 @@
   function onActivity() { noteInput(); }
 
   window.__xboxplayIdle = {
-    NUDGE_AFTER, idleOn, stillHereText, findStillHere, nudgeDue, nudgePad, releaseCapture,
+    NUDGE_AFTER, idleOn, stillHereText, findStillHere, nudgeDue, nudgePad, releaseCapture, pageHidden,
     markIdle(since) { lastInput = since; sawStream = true; nudgeUntil = 0; },
     poll: considerNudge,
     tick: scan,

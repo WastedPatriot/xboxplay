@@ -311,8 +311,26 @@
     } : null;
     if (warn && sample) toast(poorMessage(sample));
   }
-  function hidden() {
+  // Clicking away can look like a dropped stream. Don't restart WebRTC while the window is unfocused.
+  let unfocused = false;
+  function holdReconnect() {
+    if (unfocused) return true;
+    try {
+      const idle = window.__xboxplayIdle;
+      if (idle && typeof idle.pageHidden === 'function') return !!idle.pageHidden();
+    } catch (e) {}
     try { return !!(document && document.hidden); } catch (e) { return false; }
+  }
+  function resumeVideo() {
+    try {
+      const nodes = document.querySelectorAll ? document.querySelectorAll('video') : [];
+      for (const v of nodes) {
+        if (v && v.srcObject && v.paused && typeof v.play === 'function') {
+          const p = v.play();
+          if (p && typeof p.catch === 'function') p.catch(() => {});
+        }
+      }
+    } catch (e) {}
   }
   function recover(pc, link, step) {
     if (!link.told) { link.told = true; toast('Stream dropped. Trying to reconnect.'); log('stream dropped, trying to reconnect'); }
@@ -356,7 +374,7 @@
     const link = primary && links.get(primary);
     const recovering = !!(reconnectEnabled() && link && link.downSince && !link.gaveUp);
     show(anyMoving || best ? best : null, recovering);
-    if (hidden() || anyMoving || !link) return;
+    if (holdReconnect() || anyMoving || !link) return;
     const step = nextReconnect(link, t, reconnectEnabled());
     if (step === 'giveup') { toast("Couldn't reconnect. Press F5 to reload."); log('gave up reconnecting'); return; }
     if (step === 'restart' || step === 'click') recover(primary || bestPc, link, step);
@@ -364,8 +382,13 @@
 
   window.__xboxplayStream = {
     qualityMode, bitrateCap, applyBitrate, readStats, healthOf, noteHealth, statusText, poorMessage,
-    freshLink, onLinkState, onMedia, nextReconnect, findReconnect, tick,
+    freshLink, onLinkState, onMedia, nextReconnect, findReconnect, holdReconnect, tick,
   };
   try { install(); } catch (e) { log('could not watch the stream'); }
+  try {
+    if (typeof document.hasFocus === 'function') unfocused = !document.hasFocus();
+    window.addEventListener('blur', () => { unfocused = true; });
+    window.addEventListener('focus', () => { unfocused = false; resumeVideo(); });
+  } catch (e) {}
   setInterval(() => { tick().catch(() => {}); }, 2000);
 })();

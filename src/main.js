@@ -6,6 +6,7 @@ const crypto = require('crypto');
 const { INJECT_HOSTS, ALLOWED_PERMISSIONS, BX, isAllowedUrl, safeUrl } = require('./config');
 const { loadKeymap } = require('./keymap');
 const { listInputDevices, summarizeDevices, resolveController, readControllerSetting, writeControllerSetting, normalizeController } = require('./input-devices');
+const { readSession, writeSession, eraseSession, validSession } = require('./session-file');
 
 const START = 'https://www.xbox.com/play';
 const DEBUG = process.env.XBOXPLAY_DEBUG === '1';
@@ -64,7 +65,7 @@ if (!app.requestSingleInstanceLock()) app.quit();
 
 // ---- injected scripts ----------------------------------------------------
 const read = f => fs.readFileSync(path.join(__dirname, f), 'utf8');
-const OWN_SCRIPTS = [{ name: 'stream', code: read('stream.js') }, { name: 'overlay', code: read('overlay.js') }, { name: 'mkb', code: read('mkb.js') }, { name: 'idle', code: read('idle.js') }];
+const OWN_SCRIPTS = [{ name: 'session', code: read('session.js') }, { name: 'stream', code: read('stream.js') }, { name: 'overlay', code: read('overlay.js') }, { name: 'mkb', code: read('mkb.js') }, { name: 'idle', code: read('idle.js') }];
 const sens = parseFloat(process.env.XBOXPLAY_SENS);
 if (sens > 0) OWN_SCRIPTS.unshift({ name: 'sens', code: `window.__XBOXPLAY_SENS=${JSON.stringify(String(sens))}` });
 if (process.env.XBOXPLAY_QUALITY) OWN_SCRIPTS.unshift({ name: 'quality', code: 'window.__XBOXPLAY_QUALITY=' + JSON.stringify(String(process.env.XBOXPLAY_QUALITY)) + ';' });
@@ -127,7 +128,7 @@ function lockDown(wc) {
     if (/^https:\/\//i.test(url)) shell.openExternal(url);
     return { action: 'deny' };
   });
-  wc.on('did-create-window', w => lockDown(w.webContents));
+  wc.on('did-create-window', w => { lockDown(w.webContents); armClose(w); });
 }
 
 function createWindow() {
@@ -179,9 +180,72 @@ function createWindow() {
     }, 1500);
   });
 
+  armClose(win);
   wc.loadURL(process.env.XBOXPLAY_URL && isAllowedUrl(process.env.XBOXPLAY_URL) ? process.env.XBOXPLAY_URL : START);
   return win;
 }
+
+const XBOX_ORIGINS = ['https://www.xbox.com', 'https://play.xbox.com'];
+async function clearStreamCaches(ses, http) {
+  if (!ses) return;
+  if (http) { try { await ses.clearCache(); } catch { log('could not clear the http cache'); } }
+  for (const origin of XBOX_ORIGINS) {
+    try { await ses.clearStorageData({ origin, storages: ['serviceworkers', 'cachestorage'] }); }
+    catch { log('could not clear the site cache'); }
+  }
+}
+async function stopSavedSession() {
+  let dir = '';
+  try { dir = app.getPath('userData'); } catch { return false; }
+  const saved = readSession(dir);
+  if (!saved) return false;
+  try {
+    const r = await net.fetch(saved.stopUrl, { method: 'DELETE', headers: { Authorization: saved.authorization } });
+    eraseSession(dir);
+    log(r.ok || r.status === 404 ? 'stopped the console session' : 'console session stop returned ' + r.status);
+    return !!(r.ok || r.status === 404);
+  } catch {
+    log('could not stop the console session');
+    return false;
+  }
+}
+let ended = null;
+function endConsoleSession() {
+  if (ended) return ended;
+  const pages = webContents.getAllWebContents().filter(wc => { try { return !wc.isDestroyed(); } catch { return false; } });
+  ended = (async () => {
+    await Promise.race([
+      Promise.all(pages.map(wc => wc.executeJavaScript('window.__xboxplaySession ? window.__xboxplaySession.stop() : false', true).catch(() => false))),
+      new Promise(r => setTimeout(r, 2000)),
+    ]);
+    await Promise.race([stopSavedSession(), new Promise(r => setTimeout(r, 2000))]);
+  })();
+  return ended;
+}
+function armClose(win) {
+  win.on('close', (e) => {
+    if (win.__xboxplayGone) return;
+    e.preventDefault();
+    win.__xboxplayGone = true;
+    const finish = () => { try { if (!win.isDestroyed()) win.destroy(); } catch {} };
+    const timer = setTimeout(finish, 2500);
+    endConsoleSession().finally(() => { clearTimeout(timer); finish(); });
+  });
+}
+
+ipcMain.handle('xboxplay:session-note', (e, info) => {
+  if (!frameOk(e)) return false;
+  let dir = '';
+  try { dir = app.getPath('userData'); } catch { return false; }
+  if (info == null) { eraseSession(dir); return true; }
+  if (!validSession(info)) return false;
+  return writeSession(dir, info);
+});
+ipcMain.handle('xboxplay:clear-stream-cache', async (e) => {
+  if (!frameOk(e)) return false;
+  try { await clearStreamCaches(e.sender.session, false); return true; }
+  catch { return false; }
+});
 
 ipcMain.handle('xboxplay:controller-set', (e, mode) => {
   if (!frameOk(e)) return controllerMode;
@@ -209,6 +273,10 @@ app.whenReady().then(async () => {
   OWN_SCRIPTS.unshift({ name: 'controller', code: 'window.__XBOXPLAY_CONTROLLER=' + JSON.stringify(choice.mode) + ';' });
   if (choice.source !== 'default') log('controller:', choice.mode);
   await loadBX();
+  const ses = session.fromPartition(PARTITION);
+  await stopSavedSession();
+  await clearStreamCaches(ses, true);
+  log('cleared the xbox.com site cache');
   createWindow();
   try { powerSaveBlocker.start('prevent-display-sleep'); }
   catch { log('could not keep the display awake'); }
@@ -216,5 +284,22 @@ app.whenReady().then(async () => {
   setInterval(publishDevices, 2000);
 });
 app.on('second-instance', () => { const w = BrowserWindow.getAllWindows()[0]; if (w) { if (w.isMinimized()) w.restore(); w.focus(); } });
+let quitting = false;
+app.on('before-quit', (e) => {
+  if (quitting) return;
+  const open = BrowserWindow.getAllWindows().filter(w => { try { return !w.isDestroyed() && !w.__xboxplayGone; } catch { return false; } });
+  if (!open.length) return;
+  e.preventDefault();
+  quitting = true;
+  const finish = () => {
+    for (const w of BrowserWindow.getAllWindows()) {
+      w.__xboxplayGone = true;
+      try { if (!w.isDestroyed()) w.destroy(); } catch {}
+    }
+    app.quit();
+  };
+  const timer = setTimeout(finish, 2500);
+  endConsoleSession().finally(() => { clearTimeout(timer); finish(); });
+});
 app.on('window-all-closed', () => app.quit());
 module.exports = { createWindow };

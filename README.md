@@ -113,6 +113,7 @@ F3 also has stream quality. Auto leaves Xbox's bitrate alone and keeps the playb
 ## Troubleshooting
 
 - Black screen, or the picture never comes up: the network is often blocking the UDP ports the stream uses. Try a phone hotspot. A VPN can block it the same way.
+- Remote play shows the Xbox logo and then goes black after you click away, or after you close and reopen the app: quit and open XboxPlay again. It ends a leftover console session and clears the xbox.com site cache on startup. If it is still black, delete the `Cache`, `Code Cache`, and `Service Worker` folders in `~/.config/XboxPlay` and open it again. Leave `Cookies` alone if you want to stay signed in.
 - Sandbox: the installer asks for sudo once so `chrome-sandbox` can be root-owned and setuid. If that fails, the app starts with `--no-sandbox`. The Flatpak build does that on purpose, because Flatpak is already a sandbox.
 - GPU: if the window stays black or the app dies on startup, run `XBOXPLAY_SAFE=1 xboxplay`. That turns GPU acceleration off.
 - The controller is missing. Wired USB needs the `input` group, then a logout. The 8BitDo Ultimate 2C uses `xpad`. Official Series pads over USB often need `xone`. Bluetooth needs `xpadneo` or the kernel HID driver. In F3, leave the choice on "Controller if plugged in" unless you want the keyboard.

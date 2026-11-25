@@ -43,6 +43,11 @@ check(readme.includes("I'm still here"), 'readme mentions the idle prompt');
 check(mainSrc.includes("name: 'stream'"), 'stream helper is injected');
 check(mainSrc.includes("name: 'idle'") && mainSrc.indexOf("name: 'mkb'") < mainSrc.indexOf("name: 'idle'"), 'idle helper is injected after the gamepad script');
 check(mainSrc.includes('backgroundThrottling: false'), 'the page is not background-throttled');
+check(mainSrc.includes("name: 'session'") && mainSrc.indexOf("name: 'session'") < mainSrc.indexOf("name: 'stream'"), 'session helper is injected before the stream helper');
+check(mainSrc.includes('serviceworkers') && mainSrc.includes('cachestorage') && mainSrc.includes('cleared the xbox.com site cache'), 'xbox.com service worker caches are cleared on startup');
+check(mainSrc.includes('before-quit') && mainSrc.includes('__xboxplaySession'), 'closing the window stops the console session');
+const preloadSrc = fs.readFileSync(path.join(__dirname, '../src/preload.js'), 'utf8');
+check(preloadSrc.includes('DOMContentLoaded') && preloadSrc.includes("name !== 'better-xcloud'"), 'better-xcloud waits until the document exists');
 check(mainSrc.includes('disable-background-timer-throttling') && mainSrc.includes('disable-renderer-backgrounding') && mainSrc.includes('disable-backgrounding-occluded-windows'), 'Chromium is told not to throttle a covered window');
 check(mainSrc.includes("powerSaveBlocker.start('prevent-display-sleep')"), 'the display is kept awake');
 const safeAt = mainSrc.indexOf("XBOXPLAY_SAFE === '1'");
@@ -600,6 +605,10 @@ function tmpDir() { return fs.mkdtempSync(path.join(os.tmpdir(), 'xboxplay-keyma
     check(api.nextReconnect(again, 20000, false) === 'none', 'reconnect can be turned off');
     const found = api.findReconnect(ctx.document);
     check(found === button, 'only a Reconnect button is clicked, not Resume');
+    check(api.holdReconnect() === false, 'reconnect can run while the window is in front');
+    ctx.window.__xboxplayIdle = { pageHidden() { return true; } };
+    check(api.holdReconnect() === true, 'reconnect waits while the window is really hidden');
+    ctx.window.__xboxplayIdle = null;
     store['xboxplay.quality'] = 'stable';
     const pc = vm.runInContext('new window.RTCPeerConnection()', ctx);
     await vm.runInContext('pc.setLocalDescription({ type: "offer", sdp })', Object.assign(ctx, { pc, sdp }));
@@ -718,10 +727,17 @@ function tmpDir() { return fs.mkdtempSync(path.join(os.tmpdir(), 'xboxplay-keyma
     check(api.releaseCapture({ pointerLockElement: {}, exitPointerLock() {} }, false) === false, 'the mouse stays captured when nothing is showing');
 
     const page = new ctx.Document();
-    check(page.hidden === false && page.visibilityState === 'visible' && page.hasFocus() === true, 'while anti-idle is on the page is not treated as hidden');
+    check(page.hidden === false && page.visibilityState === 'visible' && page.hasFocus() === false, 'while anti-idle is on the page is not treated as hidden, and focus stays real');
     store['xboxplay.idle'] = '0';
     check(page.hidden === true && page.visibilityState === 'hidden' && page.hasFocus() === false, 'turning anti-idle off reports the real page visibility');
     store['xboxplay.idle'] = '1';
+    check(api.pageHidden() === true, 'anti-idle still knows when the window is really hidden');
+    const prevQS = doc.querySelectorAll.bind(doc);
+    doc.querySelectorAll = (sel) => (sel === 'video' ? [{ videoWidth: 1920, paused: false, srcObject: {} }] : prevQS(sel));
+    const live = new ctx.Document();
+    check(live.hidden === true && live.visibilityState === 'hidden', 'a playing picture is told the real visibility');
+    doc.querySelectorAll = prevQS;
+    check(new ctx.Document().hidden === false, 'with no picture, anti-idle still reports the page as visible');
 
     const nav = new ctx.Navigator();
     const early = nav.getGamepads();
@@ -762,6 +778,75 @@ function tmpDir() { return fs.mkdtempSync(path.join(os.tmpdir(), 'xboxplay-keyma
     doc.pointerLockElement = { locked: true };
     api.tick();
     check(trapped.clicked === clicks, 'the confirm button is not clicked again straight away');
+  }
+
+  {
+    const { readSession, writeSession, eraseSession, validSession } = require('../src/session-file');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'xboxplay-session-'));
+    const stopUrl = 'https://uks.core.gssv-play-prodxhome.xboxlive.com/v5/sessions/home/04DBC99C-77BA-4D2E-B8D0-0B39CC16869C';
+    const authorization = 'Bearer test-token-value';
+    check(validSession({ stopUrl: stopUrl + '?x=1', authorization }) === null, 'a session url with a query string is ignored');
+    check(validSession({ stopUrl: 'http://xboxlive.com/v5/sessions/home/04DBC99C-77BA-4D2E-B8D0-0B39CC16869C', authorization }) === null, 'a session url has to be https on xboxlive.com');
+    check(readSession(dir) === null, 'a missing session file is unset');
+    check(writeSession(dir, { stopUrl, authorization }) === true, 'the console session is saved');
+    const saved = readSession(dir);
+    check(saved && saved.stopUrl === stopUrl && saved.authorization === authorization, 'the saved session can be read back');
+    check((fs.statSync(path.join(dir, 'session.json')).mode & 0o777) === 0o600, 'the session file is not world-readable');
+    const real = path.join(dir, 'real.json');
+    fs.writeFileSync(real, '{"stopUrl":"https://evil.example/secret","authorization":"Bearer other-token"}\n');
+    fs.unlinkSync(path.join(dir, 'session.json'));
+    fs.symlinkSync('real.json', path.join(dir, 'session.json'));
+    check(readSession(dir) === null && writeSession(dir, { stopUrl, authorization }) === false, 'a symlink session file is ignored');
+    check(fs.readFileSync(real, 'utf8').includes('evil.example'), 'the symlink target is left alone');
+    fs.unlinkSync(path.join(dir, 'session.json'));
+    check(writeSession(dir, { stopUrl, authorization }) === true && eraseSession(dir) === undefined && readSession(dir) === null, 'the session file is removed after the stop');
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+
+  {
+    const calls = [];
+    const notes = [];
+    const PLAY = 'https://uks.core.gssv-play-prodxhome.xboxlive.com/v5/sessions/home/play';
+    const SESSION = 'https://uks.core.gssv-play-prodxhome.xboxlive.com/v5/sessions/home/04DBC99C-77BA-4D2E-B8D0-0B39CC16869C';
+    const body = { sessionId: '04DBC99C-77BA-4D2E-B8D0-0B39CC16869C', sessionPath: 'v5/sessions/home/04DBC99C-77BA-4D2E-B8D0-0B39CC16869C' };
+    function fetch(url, init) {
+      calls.push({ url: String(url), method: String((init && init.method) || 'GET').toUpperCase() });
+      if (String((init && init.method) || '').toUpperCase() === 'DELETE') return Promise.resolve({ ok: true, status: 204 });
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        clone() { return { json: () => Promise.resolve(body) }; },
+      });
+    }
+    const ctx = {
+      window: {
+        fetch,
+        addEventListener() {},
+        xboxplayHost: {
+          noteSession(info) { notes.push(info); },
+          clearStreamCache() { return Promise.resolve(true); },
+        },
+      },
+      location: { href: 'https://www.xbox.com/en-US/play' },
+      console, Promise, URL, JSON, Object, String, Array, setTimeout, clearTimeout,
+    };
+    ctx.window.window = ctx.window;
+    vm.createContext(ctx);
+    vm.runInContext(fs.readFileSync(path.join(__dirname, '../src/session.js'), 'utf8'), ctx);
+    const api = vm.runInContext('window.__xboxplaySession', ctx);
+    check(api.isHomePlay(PLAY, 'POST') === true, 'a home play request is recognised');
+    check(api.isHomePlay('https://www.xbox.com/en-US/play', 'POST') === false, 'the website itself is not a console session');
+    check(api.stopUrlFrom(PLAY, body) === SESSION, 'the stop url is the home session, not the play url');
+    check(api.sessionFromUrl(SESSION + '/state', 'Bearer test-token-value').stopUrl === SESSION, 'a state poll points at the same session');
+    await vm.runInContext('window.fetch(u, { method: "POST", headers: { Authorization: "Bearer test-token-value" } })', Object.assign(ctx, { u: PLAY }));
+    await vm.runInContext('new Promise(r => setTimeout(r, 0))', ctx);
+    check(notes.some(n => n && n.stopUrl === SESSION && n.authorization === 'Bearer test-token-value'), 'a home play response is remembered');
+    calls.length = 0;
+    await vm.runInContext('window.fetch(u, { method: "POST", headers: { Authorization: "Bearer test-token-value" } })', ctx);
+    check(calls[0] && calls[0].method === 'DELETE' && calls[0].url === SESSION, 'a stale console session is deleted before the next start');
+    check(calls.some(c => c.method === 'POST' && c.url === PLAY), 'the new session start still goes out');
+    const stopped = await vm.runInContext('window.__xboxplaySession.stop()', ctx);
+    check(stopped === true, 'stop deletes the console session');
   }
 
   if (failed) {

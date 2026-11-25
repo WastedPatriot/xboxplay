@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+Remote play stays up when the window loses focus. Closing the app ends the console session, and the next open clears the xbox.com site cache so the picture is not black.
+
 ## 1.0.0
 
 Tagged as `v1.0.0`. The AppImage, the `.deb`, and the `.rpm` are on that GitHub release.
