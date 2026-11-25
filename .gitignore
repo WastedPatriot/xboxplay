@@ -1,4 +1,11 @@
 node_modules/
+dist/
+out/
+build-dir/
+.flatpak-builder/
 *.log
 *.png.tmp
 .DS_Store
+*.AppImage
+*.deb
+*.rpm
