@@ -1,0 +1,22 @@
+pkgbase = xboxplay-bin
+	pkgdesc = Xbox remote play and xCloud desktop app for Linux
+	pkgver = 1.0.0
+	pkgrel = 1
+	url = https://github.com/WastedPatriot/xboxplay
+	arch = x86_64
+	license = MIT
+	depends = bash
+	depends = fuse2
+	depends = hicolor-icon-theme
+	depends = zlib
+	noextract = XboxPlay-1.0.0.AppImage
+	options = !strip
+	options = !debug
+	source = XboxPlay-1.0.0.AppImage::https://github.com/WastedPatriot/xboxplay/releases/download/v1.0.0/XboxPlay-1.0.0.AppImage
+	source = xboxplay.png::https://raw.githubusercontent.com/WastedPatriot/xboxplay/v1.0.0/assets/icon.png
+	source = LICENSE-1.0.0::https://raw.githubusercontent.com/WastedPatriot/xboxplay/v1.0.0/LICENSE
+	sha256sums = a10c1c4a6526c35b97296891baabe17989c947dfd268e52562e93237c282a93b
+	sha256sums = bd24d26e0c18a4d693d988f0689d045bafc69cb2bf49617ece62e06827a3b5fb
+	sha256sums = 71abe78011419be2edaf0a80f167d237a8d30260676f81f078794731e0ff6465
+
+pkgname = xboxplay-bin
