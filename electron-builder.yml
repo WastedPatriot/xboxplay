@@ -14,7 +14,7 @@ linux:
     - deb
     - rpm
   category: Game
-  icon: assets/icon.png
+  icon: assets/icons
   executableName: xboxplay
   syncDesktopName: true
   synopsis: Xbox remote play and cloud gaming
