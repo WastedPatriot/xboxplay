@@ -80,7 +80,27 @@
     setSensitivity(v) { LS.setItem('xboxplay.sens', String(v)); },
     state() { const s = sample(); return { lx: s.axes[0], ly: s.axes[1], rx: s.axes[2], ry: s.axes[3], lt: s.down[6], rt: s.down[7] }; },
     refreshBadge() { badge(); },
+    controllerMode() { return controllerMode(); },
+    setController(mode) {
+      const m = normalizeMode(mode);
+      if (!m) return;
+      window.__XBOXPLAY_CONTROLLER = m;
+      LS.setItem('xboxplay.controller', m);
+      try { if (window.xboxplayHost && window.xboxplayHost.setController) window.xboxplayHost.setController(m); } catch (e) {}
+    },
   };
+  function normalizeMode(v) {
+    v = String(v || '').toLowerCase();
+    if (v === 'usb') return 'wired';
+    if (v === 'bt') return 'bluetooth';
+    if (v === 'keys' || v === 'mkb') return 'keyboard';
+    if (v === 'wired' || v === 'bluetooth' || v === 'keyboard' || v === 'auto') return v;
+    return '';
+  }
+  // auto: a real pad if one is plugged in, otherwise the keyboard. keyboard forces the virtual pad.
+  function controllerMode() {
+    return normalizeMode(window.__XBOXPLAY_CONTROLLER) || normalizeMode(get('controller', '')) || 'auto';
+  }
   // If Better xCloud is loaded and the user never chose, leave input to Better xCloud.
   setTimeout(() => { if (!pref && window.BX_EXPOSED) { M.enabled = false; badge(); } }, 0);
 
@@ -193,11 +213,15 @@
   }
   Navigator.prototype.getGamepads = function () {
     const real = Array.from(origGP.call(this) || []);
-    if (!M.enabled && !exposed) return real;
-    const at = place(real);
-    if (at < 0) return real;
+    // A real controller (wired or Bluetooth, including the 8BitDo on xpad) is what the game reads.
+    // It is returned on its own, not mixed with the keyboard pad. Keyboard mode forces the virtual pad.
+    if (controllerMode() !== 'keyboard' && real.some(Boolean)) return real;
+    if (!M.enabled && !exposed) return controllerMode() === 'keyboard' ? [] : real;
+    const base = controllerMode() === 'keyboard' ? [] : real.slice();
+    const at = place(base);
+    if (at < 0) return base;
     exposed = true;
-    real[at] = pad(at); gpCalls++; return real;
+    base[at] = pad(at); gpCalls++; return base;
   };
   setInterval(() => { if (gpCalls || keysLive()) debug('game read the virtual pad ' + gpCalls + ' times in 3s'); gpCalls = 0; }, 3000);
 
@@ -353,7 +377,11 @@
   window.addEventListener('blur', reset);
   document.addEventListener('visibilitychange', () => { if (document.hidden) reset(); });
   refreshStream();
-  if (M.enabled) { exposed = true; announce(); }
+  if (M.enabled) {
+    let physical = false;
+    try { physical = Array.from(origGP.call(navigator) || []).some(Boolean); } catch (e) {}
+    if (controllerMode() === 'keyboard' || !physical) { exposed = true; announce(); }
+  }
   setInterval(refreshStream, 250);
   const showBadge = () => setTimeout(badge, 0);
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', showBadge); else showBadge();

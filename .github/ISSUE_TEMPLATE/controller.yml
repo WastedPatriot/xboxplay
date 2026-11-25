@@ -1,0 +1,44 @@
+name: Controller request
+description: A pad that Linux can see, but the game does not.
+title: "[controller] "
+labels: []
+body:
+  - type: input
+    id: model
+    attributes:
+      label: Brand and model
+      placeholder: 8BitDo Ultimate 2C
+    validations:
+      required: true
+  - type: dropdown
+    id: link
+    attributes:
+      label: Wired or Bluetooth
+      options:
+        - Wired USB
+        - Bluetooth
+        - Both
+        - Not sure
+    validations:
+      required: true
+  - type: input
+    id: usb
+    attributes:
+      label: USB id, if you have it
+      description: From `lsusb`. Example 2dc8:310a.
+      placeholder: 2dc8:310a
+  - type: input
+    id: driver
+    attributes:
+      label: Kernel driver
+      description: xpad, xone, xpadneo, hid-generic, or whatever `ls /sys/class/input` shows.
+      placeholder: xpad
+    validations:
+      required: true
+  - type: textarea
+    id: seen
+    attributes:
+      label: What Linux and the game show
+      description: Does `/dev/input/js*` exist? Does the game see a controller, the keyboard pad, both, or neither?
+    validations:
+      required: true

@@ -1,10 +1,11 @@
 'use strict';
-const { app, BrowserWindow, session, net, shell, ipcMain } = require('electron');
+const { app, BrowserWindow, session, net, shell, ipcMain, webContents, powerSaveBlocker } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const { INJECT_HOSTS, ALLOWED_PERMISSIONS, BX, isAllowedUrl, safeUrl } = require('./config');
 const { loadKeymap } = require('./keymap');
+const { listInputDevices, summarizeDevices, resolveController, readControllerSetting, writeControllerSetting, normalizeController } = require('./input-devices');
 
 const START = 'https://www.xbox.com/play';
 const DEBUG = process.env.XBOXPLAY_DEBUG === '1';
@@ -12,23 +13,61 @@ const PARTITION = 'persist:xbox';
 // xbox.com blocks unknown browsers, so present as plain Chrome on Linux (same engine version).
 const CHROME_UA = `Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${process.versions.chrome.split('.')[0]}.0.0.0 Safari/537.36`;
 const log = (...a) => console.log('[XboxPlay]', ...a);
+let controllerMode = 'auto';
+let lastDeviceLog = '';
+
+function broadcast(code) {
+  for (const wc of webContents.getAllWebContents()) {
+    try { wc.executeJavaScript(code).catch(() => {}); } catch {}
+  }
+}
+function deviceSummary() {
+  try { return summarizeDevices(listInputDevices()); }
+  catch { return { wired: [], bluetooth: [], scanned: false }; }
+}
+function publishDevices() {
+  const summary = deviceSummary();
+  const payload = JSON.stringify(summary);
+  if (payload !== lastDeviceLog) {
+    lastDeviceLog = payload;
+    const found = (summary.wired || []).concat(summary.bluetooth || []);
+    log(found.length ? 'controllers: ' + found.join(', ') : 'no wired or Bluetooth controller seen');
+  }
+  broadcast('window.__XBOXPLAY_DEVICES=' + payload + '; if (window.__xboxplayUI && window.__xboxplayUI.controllerHint) window.__xboxplayUI.controllerHint();');
+}
+function frameOk(e) {
+  try { return isAllowedUrl(e.senderFrame && e.senderFrame.url); } catch { return false; }
+}
 
 app.setName('XboxPlay');
+// WM_CLASS. The desktop file's StartupWMClass is the same string, so the menu entry and the window are one app.
+if (process.platform === 'linux') app.commandLine.appendSwitch('class', 'XboxPlay');
 app.userAgentFallback = CHROME_UA;
 if (process.env.XBOXPLAY_SAFE === '1') app.disableHardwareAcceleration();
 else {
   app.commandLine.appendSwitch('ignore-gpu-blocklist');
   app.commandLine.appendSwitch('enable-gpu-rasterization');
   app.commandLine.appendSwitch('enable-zero-copy');
+  // Hardware decode on Linux. The GL path is the safe one. Zero-copy and the
+  // driver bypass help some GPUs and black-screen others, so they stay opt-in.
+  let video = 'AcceleratedVideoDecodeLinuxGL,VaapiVideoDecoder';
+  if (process.env.XBOXPLAY_VAAPI === '1') video += ',AcceleratedVideoDecodeLinuxZeroCopyGL,VaapiIgnoreDriverChecks,VaapiOnNvidiaGPUs';
+  app.commandLine.appendSwitch('enable-features', video);
 }
+// A stream dies if Chromium decides the window is in the background.
+app.commandLine.appendSwitch('disable-background-timer-throttling');
+app.commandLine.appendSwitch('disable-renderer-backgrounding');
+app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
+app.commandLine.appendSwitch('disable-features', 'IntensiveWakeUpThrottling,CalculateNativeWinOcclusion');
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 if (!app.requestSingleInstanceLock()) app.quit();
 
 // ---- injected scripts ----------------------------------------------------
 const read = f => fs.readFileSync(path.join(__dirname, f), 'utf8');
-const OWN_SCRIPTS = [{ name: 'overlay', code: read('overlay.js') }, { name: 'mkb', code: read('mkb.js') }];
+const OWN_SCRIPTS = [{ name: 'stream', code: read('stream.js') }, { name: 'overlay', code: read('overlay.js') }, { name: 'mkb', code: read('mkb.js') }, { name: 'idle', code: read('idle.js') }];
 const sens = parseFloat(process.env.XBOXPLAY_SENS);
 if (sens > 0) OWN_SCRIPTS.unshift({ name: 'sens', code: `window.__XBOXPLAY_SENS=${JSON.stringify(String(sens))}` });
+if (process.env.XBOXPLAY_QUALITY) OWN_SCRIPTS.unshift({ name: 'quality', code: 'window.__XBOXPLAY_QUALITY=' + JSON.stringify(String(process.env.XBOXPLAY_QUALITY)) + ';' });
 if (DEBUG) OWN_SCRIPTS.unshift({ name: 'debug', code: 'window.__XBOXPLAY_DEBUG=1' });
 
 const BX_FILE = () => path.join(app.getPath('userData'), `better-xcloud-${BX.version}.user.js`);
@@ -75,6 +114,7 @@ function webPreferences() {
 }
 
 function lockDown(wc) {
+  try { wc.setBackgroundThrottling(false); } catch {}
   const guard = (e, url) => {
     if (isAllowedUrl(url)) return;
     e.preventDefault(); log('blocked navigation to', safeUrl(url));
@@ -133,6 +173,7 @@ function createWindow() {
   let retries = 0;
   wc.on('did-finish-load', () => {
     wc.setAudioMuted(false);
+    publishDevices();
     setTimeout(() => {
       if (wc.getURL().includes('play.xbox.com') && /Bad Request|Invalid URL/i.test(wc.getTitle()) && retries++ < 2) wc.loadURL('https://play.xbox.com/');
     }, 1500);
@@ -142,13 +183,37 @@ function createWindow() {
   return win;
 }
 
+ipcMain.handle('xboxplay:controller-set', (e, mode) => {
+  if (!frameOk(e)) return controllerMode;
+  const next = normalizeController(mode);
+  if (!next) return controllerMode;
+  controllerMode = next;
+  try { writeControllerSetting(app.getPath('userData'), next); }
+  catch { log('could not save controller choice'); }
+  broadcast('window.__XBOXPLAY_CONTROLLER=' + JSON.stringify(next) + ';');
+  publishDevices();
+  return next;
+});
+
 app.on('web-contents-created', (e, wc) => wc.on('will-attach-webview', ev => ev.preventDefault()));
 app.whenReady().then(async () => {
   const loaded = loadKeymap(app.getPath('userData'));
   if (loaded.error) log('keymap.json ignored (' + loaded.error + '), using defaults');
   OWN_SCRIPTS.unshift({ name: 'keymap', code: 'window.__XBOXPLAY_KEYMAP=' + JSON.stringify(loaded.map) + ';' });
+  const saved = readControllerSetting(app.getPath('userData'));
+  const choice = resolveController({ argv: process.argv, env: process.env, saved });
+  controllerMode = choice.mode;
+  if (choice.source === 'flag' || choice.source === 'env') {
+    try { writeControllerSetting(app.getPath('userData'), choice.mode); } catch {}
+  }
+  OWN_SCRIPTS.unshift({ name: 'controller', code: 'window.__XBOXPLAY_CONTROLLER=' + JSON.stringify(choice.mode) + ';' });
+  if (choice.source !== 'default') log('controller:', choice.mode);
   await loadBX();
   createWindow();
+  try { powerSaveBlocker.start('prevent-display-sleep'); }
+  catch { log('could not keep the display awake'); }
+  publishDevices();
+  setInterval(publishDevices, 2000);
 });
 app.on('second-instance', () => { const w = BrowserWindow.getAllWindows()[0]; if (w) { if (w.isMinimized()) w.restore(); w.focus(); } });
 app.on('window-all-closed', () => app.quit());
