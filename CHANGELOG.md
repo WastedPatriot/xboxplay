@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-Remote play stays up when the window loses focus. Closing the app ends the console session, and the next open clears the xbox.com site cache so the picture is not black.
+Closing the app ends the console session, and the next open clears the xbox.com site cache, so remote play is not black after a reopen. Clicking away keeps the page visible and focused so the picture does not pause. A second launch brings the open window forward. A picture that sits still for a few seconds is resumed.
 
 ## 1.0.0
 

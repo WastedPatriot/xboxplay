@@ -43,6 +43,7 @@ check(readme.includes("I'm still here"), 'readme mentions the idle prompt');
 check(mainSrc.includes("name: 'stream'"), 'stream helper is injected');
 check(mainSrc.includes("name: 'idle'") && mainSrc.indexOf("name: 'mkb'") < mainSrc.indexOf("name: 'idle'"), 'idle helper is injected after the gamepad script');
 check(mainSrc.includes('backgroundThrottling: false'), 'the page is not background-throttled');
+check(mainSrc.includes("app.on('second-instance'") && mainSrc.includes('win.restore()') && mainSrc.includes('win.show()') && mainSrc.includes('win.focus()') && mainSrc.includes('__xboxplayStream.nudge'), 'a second launch raises the open window and nudges the picture');
 check(mainSrc.includes("name: 'session'") && mainSrc.indexOf("name: 'session'") < mainSrc.indexOf("name: 'stream'"), 'session helper is injected before the stream helper');
 check(mainSrc.includes('serviceworkers') && mainSrc.includes('cachestorage') && mainSrc.includes('cleared the xbox.com site cache'), 'xbox.com service worker caches are cleared on startup');
 check(mainSrc.includes('before-quit') && mainSrc.includes('__xboxplaySession'), 'closing the window stops the console session');
@@ -605,10 +606,19 @@ function tmpDir() { return fs.mkdtempSync(path.join(os.tmpdir(), 'xboxplay-keyma
     check(api.nextReconnect(again, 20000, false) === 'none', 'reconnect can be turned off');
     const found = api.findReconnect(ctx.document);
     check(found === button, 'only a Reconnect button is clicked, not Resume');
-    check(api.holdReconnect() === false, 'reconnect can run while the window is in front');
-    ctx.window.__xboxplayIdle = { pageHidden() { return true; } };
-    check(api.holdReconnect() === true, 'reconnect waits while the window is really hidden');
-    ctx.window.__xboxplayIdle = null;
+    let pic = api.notePicture(null, { live: true, time: 1, frames: 10 }, 1000);
+    check(pic.action === 'ok', 'a moving picture is left alone');
+    pic = api.notePicture(pic.state, { live: true, time: 1, frames: 10 }, 3000);
+    check(pic.action === 'ok', 'two quiet seconds is not a freeze');
+    pic = api.notePicture(pic.state, { live: true, time: 1, frames: 10 }, 4000);
+    check(pic.action === 'play', 'a picture that sits for 3 seconds is resumed');
+    pic = api.notePicture(pic.state, { live: true, time: 1, frames: 10 }, 7000);
+    check(pic.action === 'restart', 'a picture that stays frozen is reconnected');
+    pic = api.notePicture(pic.state, { live: true, time: 2, frames: 11 }, 8000);
+    check(pic.action === 'ok' && pic.state.attempts === 0, 'frames moving again clears the freeze');
+    const clock = api.notePicture({ since: 1000, time: 1, frames: 10, played: false, restarted: 0, attempts: 0 }, { live: true, time: 5, frames: 10 }, 5000);
+    check(clock.action === 'play', 'frames that stop count as a freeze even if the clock moves');
+    check(api.notePicture(null, { live: false, time: 0, frames: 0 }, 1000).action === 'ok', 'no stream means nothing to resume');
     store['xboxplay.quality'] = 'stable';
     const pc = vm.runInContext('new window.RTCPeerConnection()', ctx);
     await vm.runInContext('pc.setLocalDescription({ type: "offer", sdp })', Object.assign(ctx, { pc, sdp }));
@@ -727,7 +737,7 @@ function tmpDir() { return fs.mkdtempSync(path.join(os.tmpdir(), 'xboxplay-keyma
     check(api.releaseCapture({ pointerLockElement: {}, exitPointerLock() {} }, false) === false, 'the mouse stays captured when nothing is showing');
 
     const page = new ctx.Document();
-    check(page.hidden === false && page.visibilityState === 'visible' && page.hasFocus() === false, 'while anti-idle is on the page is not treated as hidden, and focus stays real');
+    check(page.hidden === false && page.visibilityState === 'visible' && page.hasFocus() === true, 'while anti-idle is on the page stays visible and focused');
     store['xboxplay.idle'] = '0';
     check(page.hidden === true && page.visibilityState === 'hidden' && page.hasFocus() === false, 'turning anti-idle off reports the real page visibility');
     store['xboxplay.idle'] = '1';
@@ -735,7 +745,10 @@ function tmpDir() { return fs.mkdtempSync(path.join(os.tmpdir(), 'xboxplay-keyma
     const prevQS = doc.querySelectorAll.bind(doc);
     doc.querySelectorAll = (sel) => (sel === 'video' ? [{ videoWidth: 1920, paused: false, srcObject: {} }] : prevQS(sel));
     const live = new ctx.Document();
-    check(live.hidden === true && live.visibilityState === 'hidden', 'a playing picture is told the real visibility');
+    check(live.hidden === false && live.visibilityState === 'visible' && live.hasFocus() === true, 'a playing picture stays visible and focused');
+    store['xboxplay.idle'] = '0';
+    check(new ctx.Document().hidden === false && new ctx.Document().hasFocus() === true, 'a playing picture stays visible even if anti-idle is off');
+    store['xboxplay.idle'] = '1';
     doc.querySelectorAll = prevQS;
     check(new ctx.Document().hidden === false, 'with no picture, anti-idle still reports the page as visible');
 

@@ -217,18 +217,24 @@
     wrapped.__xboxplayIdle = true;
     Navigator.prototype.getGamepads = wrapped;
   }
-  // A playing picture is told the real visibility, so the player can pause and resume
-  // when the window is covered. Lying about focus left the video element black.
-  function pictureShowing() {
+  // The stream pauses itself if the page looks hidden or unfocused. Keep it looking
+  // visible and focused whenever anti-idle is on, and whenever a picture is up.
+  function streamUp() {
     try {
       const doc = typeof document !== 'undefined' ? document : null;
-      if (!doc || typeof doc.querySelectorAll !== 'function') return false;
-      for (const v of doc.querySelectorAll('video')) {
-        if (v && v.videoWidth > 0 && !v.paused && v.srcObject) return true;
+      if (doc && typeof doc.querySelectorAll === 'function') {
+        for (const v of doc.querySelectorAll('video')) {
+          if (v && v.srcObject && v.videoWidth > 0) return true;
+        }
       }
+    } catch (e) {}
+    try {
+      const net = window.__XBOXPLAY_NET;
+      if (net && (net.bitrateMbps > 0 || net.width > 0)) return true;
     } catch (e) {}
     return false;
   }
+  function keepAwake() { return idleOn() || streamUp(); }
   let realHidden = null;
   function pageHidden() {
     try {
@@ -241,20 +247,29 @@
     const hidden = Object.getOwnPropertyDescriptor(obj, 'hidden');
     const state = Object.getOwnPropertyDescriptor(obj, 'visibilityState');
     if (hidden && hidden.get && !realHidden) realHidden = hidden.get;
-    const cover = () => idleOn() && !pictureShowing();
     try {
       if (hidden && hidden.get && hidden.configurable !== false) {
-        Object.defineProperty(obj, 'hidden', { configurable: true, get() { return cover() ? false : hidden.get.call(this); } });
+        Object.defineProperty(obj, 'hidden', { configurable: true, get() { return keepAwake() ? false : hidden.get.call(this); } });
       }
       if (state && state.get && state.configurable !== false) {
-        Object.defineProperty(obj, 'visibilityState', { configurable: true, get() { return cover() ? 'visible' : state.get.call(this); } });
+        Object.defineProperty(obj, 'visibilityState', { configurable: true, get() { return keepAwake() ? 'visible' : state.get.call(this); } });
       }
       obj[mark] = true;
     } catch (e) {}
   }
   function keepVisible() {
     const Doc = typeof Document === 'function' ? Document.prototype : null;
-    if (Doc && !Doc.__xboxplayIdle) overrideVisibility(Doc, '__xboxplayIdle');
+    if (Doc && !Doc.__xboxplayIdle) {
+      overrideVisibility(Doc, '__xboxplayIdle');
+      try {
+        if (typeof Doc.hasFocus === 'function' && !Doc.hasFocus.__xboxplayIdle) {
+          const orig = Doc.hasFocus;
+          const wrapped = function () { return keepAwake() ? true : orig.call(this); };
+          wrapped.__xboxplayIdle = true;
+          Doc.hasFocus = wrapped;
+        }
+      } catch (e) {}
+    }
     if (typeof document !== 'undefined') overrideVisibility(document, '__xboxplayVis');
   }
   function scan() {

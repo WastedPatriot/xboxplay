@@ -179,6 +179,28 @@
       link.stalled = true;
     }
   }
+  // A live picture that stops advancing. play() first, then one soft reconnect if it stays stuck.
+  function notePicture(state, sample, now) {
+    const t = now || 0;
+    const blank = { since: 0, time: null, frames: null, played: false, restarted: 0, attempts: 0 };
+    if (!sample || !sample.live) return { action: 'ok', state: blank };
+    const prev = state || blank;
+    const first = prev.time == null && prev.frames == null;
+    let advanced = false;
+    if (!first) {
+      if (prev.frames != null && sample.frames != null) advanced = sample.frames > prev.frames;
+      else if (prev.time != null && sample.time != null) advanced = sample.time > prev.time + 0.001;
+    }
+    if (first || advanced) {
+      return { action: 'ok', state: { since: t, time: sample.time, frames: sample.frames, played: false, restarted: 0, attempts: 0 } };
+    }
+    const since = prev.since || t;
+    const next = { since, time: sample.time, frames: sample.frames, played: !!prev.played, restarted: prev.restarted || 0, attempts: prev.attempts || 0 };
+    if (t - since < 3000) return { action: 'ok', state: next };
+    if (!prev.played) return { action: 'play', state: { since: t, time: sample.time, frames: sample.frames, played: true, restarted: next.restarted, attempts: next.attempts } };
+    if (next.attempts >= 2 || (next.restarted && t - next.restarted < 8000)) return { action: 'ok', state: next };
+    return { action: 'restart', state: { since: t, time: sample.time, frames: sample.frames, played: true, restarted: t, attempts: next.attempts + 1 } };
+  }
   // First recovery is restartIce, unless the video just froze. Later tries click the page's button.
   function nextReconnect(link, now, enabled) {
     if (!enabled || !link.wasUp || !link.downSince || link.gaveUp) return 'none';
@@ -311,26 +333,93 @@
     } : null;
     if (warn && sample) toast(poorMessage(sample));
   }
-  // Clicking away can look like a dropped stream. Don't restart WebRTC while the window is unfocused.
-  let unfocused = false;
-  function holdReconnect() {
-    if (unfocused) return true;
+  let blurAt = 0;
+  let picture = null;
+  function streamVideo() {
     try {
-      const idle = window.__xboxplayIdle;
-      if (idle && typeof idle.pageHidden === 'function') return !!idle.pageHidden();
+      const nodes = document.querySelectorAll ? document.querySelectorAll('video') : [];
+      let best = null;
+      for (const v of nodes) {
+        if (!v || !v.srcObject) continue;
+        if (!best || (v.videoWidth || 0) > (best.videoWidth || 0)) best = v;
+      }
+      return best;
+    } catch (e) { return null; }
+  }
+  function readPicture(v) {
+    if (!v || !v.srcObject) return { live: false, time: null, frames: null };
+    let frames = null;
+    try {
+      const q = typeof v.getVideoPlaybackQuality === 'function' ? v.getVideoPlaybackQuality() : null;
+      if (q && typeof q.totalVideoFrames === 'number') frames = q.totalVideoFrames;
     } catch (e) {}
-    try { return !!(document && document.hidden); } catch (e) { return false; }
+    const time = typeof v.currentTime === 'number' ? v.currentTime : null;
+    const live = (v.videoWidth > 0 || v.readyState >= 2) && (frames != null || time != null);
+    return { live, time, frames };
+  }
+  function livePc() {
+    if (primary && links.has(primary)) return primary;
+    for (const [pc, link] of links) if (link && link.wasUp) return pc;
+    return null;
   }
   function resumeVideo() {
     try {
       const nodes = document.querySelectorAll ? document.querySelectorAll('video') : [];
       for (const v of nodes) {
-        if (v && v.srcObject && v.paused && typeof v.play === 'function') {
-          const p = v.play();
-          if (p && typeof p.catch === 'function') p.catch(() => {});
+        if (!v || !v.srcObject || typeof v.play !== 'function') continue;
+        const p = v.play();
+        if (p && typeof p.catch === 'function') p.catch(() => {});
+      }
+    } catch (e) {}
+    try {
+      for (const pc of links.keys()) {
+        const recvs = typeof pc.getReceivers === 'function' ? pc.getReceivers() : [];
+        for (const r of recvs || []) {
+          if (r && r.track && r.track.kind === 'video' && r.track.enabled === false) r.track.enabled = true;
         }
       }
     } catch (e) {}
+  }
+  function requestFrame() {
+    try {
+      for (const pc of links.keys()) {
+        const recvs = typeof pc.getReceivers === 'function' ? pc.getReceivers() : [];
+        for (const r of recvs || []) {
+          if (!r || !r.track || r.track.kind !== 'video') continue;
+          if (typeof r.requestKeyFrame === 'function') r.requestKeyFrame();
+          else if (typeof r.requestKeyframe === 'function') r.requestKeyframe();
+        }
+      }
+    } catch (e) {}
+    try { window.dispatchEvent(new Event('resize')); } catch (e) {}
+  }
+  function nudge() {
+    resumeVideo();
+    requestFrame();
+  }
+  // A blur makes xCloud pause the element. Ignore that pause, and play it again.
+  function guardPause() {
+    const Proto = typeof HTMLVideoElement === 'function' ? HTMLVideoElement.prototype : null;
+    if (!Proto || typeof Proto.pause !== 'function' || Proto.pause.__xboxplay) return;
+    const orig = Proto.pause;
+    function wrapped() {
+      try { if (this && this.srcObject && Date.now() - blurAt < 2500) return; } catch (e) {}
+      return orig.apply(this, arguments);
+    }
+    wrapped.__xboxplay = true;
+    try { Proto.pause = wrapped; } catch (e) {}
+  }
+  function watchPicture(now) {
+    try { guardPause(); } catch (e) {}
+    const decided = notePicture(picture, readPicture(streamVideo()), now || Date.now());
+    picture = decided.state;
+    if (decided.action === 'play') { nudge(); log('stream picture froze, resuming'); }
+    else if (decided.action === 'restart') {
+      const pc = livePc();
+      if (pc && typeof pc.restartIce === 'function') {
+        try { pc.restartIce(); log('stream picture froze, restarting the connection'); } catch (e) {}
+      } else nudge();
+    }
   }
   function recover(pc, link, step) {
     if (!link.told) { link.told = true; toast('Stream dropped. Trying to reconnect.'); log('stream dropped, trying to reconnect'); }
@@ -374,7 +463,7 @@
     const link = primary && links.get(primary);
     const recovering = !!(reconnectEnabled() && link && link.downSince && !link.gaveUp);
     show(anyMoving || best ? best : null, recovering);
-    if (holdReconnect() || anyMoving || !link) return;
+    if (anyMoving || !link) return;
     const step = nextReconnect(link, t, reconnectEnabled());
     if (step === 'giveup') { toast("Couldn't reconnect. Press F5 to reload."); log('gave up reconnecting'); return; }
     if (step === 'restart' || step === 'click') recover(primary || bestPc, link, step);
@@ -382,13 +471,13 @@
 
   window.__xboxplayStream = {
     qualityMode, bitrateCap, applyBitrate, readStats, healthOf, noteHealth, statusText, poorMessage,
-    freshLink, onLinkState, onMedia, nextReconnect, findReconnect, holdReconnect, tick,
+    freshLink, onLinkState, onMedia, nextReconnect, findReconnect, notePicture, nudge, tick,
   };
   try { install(); } catch (e) { log('could not watch the stream'); }
   try {
-    if (typeof document.hasFocus === 'function') unfocused = !document.hasFocus();
-    window.addEventListener('blur', () => { unfocused = true; });
-    window.addEventListener('focus', () => { unfocused = false; resumeVideo(); });
+    window.addEventListener('blur', () => { blurAt = Date.now(); resumeVideo(); }, true);
+    window.addEventListener('focus', () => { resumeVideo(); }, true);
   } catch (e) {}
   setInterval(() => { tick().catch(() => {}); }, 2000);
+  setInterval(() => { try { watchPicture(Date.now()); } catch (e) {} }, 1000);
 })();

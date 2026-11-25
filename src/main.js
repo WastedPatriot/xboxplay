@@ -283,7 +283,34 @@ app.whenReady().then(async () => {
   publishDevices();
   setInterval(publishDevices, 2000);
 });
-app.on('second-instance', () => { const w = BrowserWindow.getAllWindows()[0]; if (w) { if (w.isMinimized()) w.restore(); w.focus(); } });
+function nudgePicture(win) {
+  if (!win) return;
+  try {
+    const [w, h] = win.getSize();
+    win.setSize(w, Math.max(1, h + 1));
+    setTimeout(() => { try { if (!win.isDestroyed()) win.setSize(w, h); } catch {} }, 50);
+  } catch {}
+  try {
+    const wc = win.webContents;
+    if (wc && !wc.isDestroyed()) wc.executeJavaScript('window.__xboxplayStream && window.__xboxplayStream.nudge && window.__xboxplayStream.nudge()').catch(() => {});
+  } catch {}
+}
+function raiseWindow(win) {
+  if (!win) return;
+  try { if (win.isDestroyed()) return; } catch { return; }
+  try { if (win.isMinimized()) win.restore(); } catch {}
+  try { win.show(); } catch {}
+  try { win.moveTop(); } catch {}
+  try { win.setAlwaysOnTop(true); win.setAlwaysOnTop(false); } catch {}
+  try { win.focus(); } catch {}
+  try { app.focus({ steal: true }); } catch {}
+  nudgePicture(win);
+  log('raised the open window');
+}
+app.on('second-instance', () => {
+  const wins = BrowserWindow.getAllWindows().filter(w => { try { return !w.isDestroyed(); } catch { return false; } });
+  if (wins[0]) raiseWindow(wins[0]);
+});
 let quitting = false;
 app.on('before-quit', (e) => {
   if (quitting) return;
