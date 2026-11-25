@@ -1,5 +1,5 @@
 # Maintainer: WastedPatriot <WastedPatriot@users.noreply.github.com>
-# Binary package. The AppImage is produced by the GitHub release workflow on a v* tag.
+# Binary package. The AppImage is the one attached to the v1.0.0 GitHub release.
 pkgname=xboxplay-bin
 pkgver=1.0.0
 pkgrel=1
@@ -7,25 +7,28 @@ pkgdesc='Xbox remote play and xCloud desktop app for Linux'
 arch=('x86_64')
 url='https://github.com/WastedPatriot/xboxplay'
 license=('MIT')
-depends=('fuse2')
-options=('!strip')
+# fuse2 is dlopen'd by the AppImage runtime, so namcap does not see it.
+depends=('bash' 'fuse2' 'hicolor-icon-theme' 'zlib')
+options=('!strip' '!debug')
 _image="XboxPlay-${pkgver}.AppImage"
 source=(
   "${_image}::https://github.com/WastedPatriot/xboxplay/releases/download/v${pkgver}/${_image}"
-  "xboxplay.png::https://raw.githubusercontent.com/WastedPatriot/xboxplay/main/assets/icon.png"
+  "xboxplay.png::https://raw.githubusercontent.com/WastedPatriot/xboxplay/v${pkgver}/assets/icon.png"
+  "LICENSE-${pkgver}::https://raw.githubusercontent.com/WastedPatriot/xboxplay/v${pkgver}/LICENSE"
 )
-# The AppImage checksum is SKIP until v1.0.0 is published. Replace it before pushing to the AUR.
 sha256sums=(
-  'SKIP'
+  'a10c1c4a6526c35b97296891baabe17989c947dfd268e52562e93237c282a93b'
   'bd24d26e0c18a4d693d988f0689d045bafc69cb2bf49617ece62e06827a3b5fb'
+  '71abe78011419be2edaf0a80f167d237a8d30260676f81f078794731e0ff6465'
 )
 noextract=("${_image}")
 
 package() {
-  install -Dm755 "${_image}" "${pkgdir}/opt/xboxplay/${_image}"
-  printf '%s\n' '#!/bin/sh' "exec /opt/xboxplay/${_image} \"\$@\"" > xboxplay-launcher
+  install -Dm755 "${_image}" "${pkgdir}/usr/lib/xboxplay/${_image}"
+  printf '%s\n' '#!/bin/bash' "exec /usr/lib/xboxplay/${_image} \"\$@\"" > xboxplay-launcher
   install -Dm755 xboxplay-launcher "${pkgdir}/usr/bin/xboxplay"
   install -Dm644 "${srcdir}/xboxplay.png" "${pkgdir}/usr/share/icons/hicolor/256x256/apps/xboxplay.png"
+  install -Dm644 "${srcdir}/LICENSE-${pkgver}" "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
   install -Dm644 /dev/stdin "${pkgdir}/usr/share/applications/XboxPlay.desktop" <<EOF
 [Desktop Entry]
 Type=Application
