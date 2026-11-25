@@ -1,26 +1,54 @@
 # XboxPlay
 
-A small Linux app for playing my Xbox (remote play) and Xbox Cloud Gaming in its own window, with keyboard and mouse.
+Xbox remote play and Xbox Cloud Gaming in a window on Linux, with a controller or the keyboard and mouse.
 
-I built this because Greenlight wouldn't connect on my work network, while xbox.com/play in Chrome worked fine. So this is just that website in an Electron window, plus a keyboard and mouse layer that makes the game think a controller is plugged in.
+I built this because Greenlight wouldn't connect on my work network, while xbox.com/play in Chrome worked fine. This is that site in an Electron window, plus a keyboard and mouse layer that looks like a controller to the game.
 
 Not affiliated with or endorsed by Microsoft. Xbox is a trademark of Microsoft. You still need your own Xbox account, and Game Pass for cloud games.
 
-![Controls guide (F1)](docs/guide.png)
+![Controls guide, press F1](docs/guide.png)
+
+![Settings, press F3](docs/settings.png)
 
 ## Install
 
-Debian, Ubuntu, Parrot and similar:
+Debian, Ubuntu, Parrot, and anything else with apt. One command:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/WastedPatriot/xboxplay/main/install.sh | bash
 ```
 
-It installs git/node/npm with apt if they're missing, clones this repo to `~/xboxplay`, runs `npm ci` (Electron 45.4.1, pinned in the lockfile), and adds an `xboxplay` command and an app menu entry. It asks for sudo once to set up Chromium's sandbox helper. Run the same line again to update.
+It installs git and Node with apt if they're missing, clones this repo to `~/xboxplay`, runs `npm ci`, and adds an `xboxplay` command and an app menu entry. It asks for sudo once, to set up Chromium's sandbox helper. Run the same line again to update.
 
-If you'd rather read it first (fair), download `install.sh`, look through it, then run `bash install.sh`.
+If you'd rather read it first, download `install.sh`, look through it, then run `bash install.sh`.
 
-## Using it
+The other way is an AppImage. Nothing is attached until a `v*` tag is pushed (see [Releases](https://github.com/WastedPatriot/xboxplay/releases)). After `v1.0.0` exists:
+
+```bash
+curl -fL -o XboxPlay.AppImage "https://github.com/WastedPatriot/xboxplay/releases/latest/download/XboxPlay-1.0.0.AppImage" && chmod +x XboxPlay.AppImage && ./XboxPlay.AppImage
+```
+
+That same release also has a `.deb` and an `.rpm`.
+
+## Features
+
+- Remote play to your console, and cloud games, in one window.
+- A plugged-in gamepad is passed through when the browser reports it as a standard pad.
+- Keyboard and mouse act as one Xbox pad. F2 turns that off.
+- F1 is the control list. F3 is sensitivity, trackpad boost, aim kick, the mouse curve, and invert Y.
+- On the old `www.xbox.com/play` site it can load Better xCloud, pinned to one version and checked with a SHA-256 before it runs.
+- No telemetry of its own.
+
+## Controllers
+
+| What you have | What you need |
+|---|---|
+| 8BitDo pad with the standard mapping. The Ultimate 2C over USB is `2dc8:310a` on `xpad`. | Plug it in. Your user should be in the `input` group. This app does not install the driver. |
+| Xbox pad, USB | `xpad`, or `xone` for many Series pads. |
+| Xbox pad, Bluetooth | `xpadneo`, or the kernel HID driver. |
+| Keyboard and mouse | Nothing extra. F2 turns it off. It uses a free controller slot, so a real pad and the keyboard can both show up. |
+
+## Keys
 
 Sign in, go to your console (or a cloud game) and start the stream. Click the picture to capture the mouse. Esc gives it back.
 
@@ -58,23 +86,36 @@ The face buttons, triggers, view, menu and Xbox button follow Greenlight. Bumper
 | F11 | Fullscreen |
 | Esc | Release the mouse |
 
-A real controller works too, it's passed straight through.
-
 F3 has mouse sensitivity (default 2), a trackpad boost for small movements, a linear or smooth mouse curve, invert Y, and the badge. They're saved in the app. `XBOXPLAY_SENS=1.5 xboxplay` also sets the sensitivity.
 
 To change a key, copy `keymap.example.json` to `~/.config/XboxPlay/keymap.json` and edit it. Each key can only be used once. If that file is missing, isn't a normal file, or doesn't match the example, you get the table above.
 
+## Troubleshooting
+
+- Black screen, or the picture never comes up: the network is often blocking the UDP ports the stream uses. Try a phone hotspot. A VPN can block it the same way.
+- Sandbox: the installer asks for sudo once so `chrome-sandbox` can be root-owned and setuid. If that fails, the app starts with `--no-sandbox`. The Flatpak build does that on purpose, because Flatpak is already a sandbox.
+- GPU: if the window stays black or the app dies on startup, run `XBOXPLAY_SAFE=1 xboxplay`. That turns GPU acceleration off.
+- "Bad Request" right after Xbox sends you to `play.xbox.com`: the app retries. Press F5 if it is still stuck. To go back to the old site: sign in, click your profile picture, Exit preview.
+- No sound: click once inside the window.
+- The mouse goes through a virtual stick, so aiming feels like a controller with a very fast thumb. Tune the sensitivity and curve in F3.
+
+## FAQ
+
+**Is this official?** No.
+
+**Do I need Game Pass?** For cloud games, yes. Remote play needs your own console on the same account.
+
+**Where is the login stored?** `~/.config/XboxPlay`. Uninstall keeps it unless you pass `--purge`.
+
+**How do I update?** Run the curl line again. For the AppImage, download the newer file from the release.
+
+**Will it run on a Steam Deck?** The AppImage is the one to try. I have not tested it there.
+
+**Which desktops?** Debian-based distros with X11. Wayland should work, but I have not tried it much.
+
 ## Better xCloud
 
 On the old `www.xbox.com/play` site the app also loads [Better xCloud](https://github.com/redphx/better-xcloud) (pinned to v6.7.13, checked against a SHA-256 before it runs). It doesn't work on the new `play.xbox.com` site yet, which is why the built-in keyboard and mouse exists. You can turn Better xCloud off in F3, or with `XBOXPLAY_BX=0`.
-
-## Known issues
-
-- Xbox is moving people to the new `play.xbox.com` site. Right after that redirect it sometimes shows "Bad Request". The app retries; if it's still stuck press F5. To go back to the old site: sign in, click your profile picture, Exit preview.
-- If the stream sits on "connecting" forever, try `XBOXPLAY_SAFE=1 xboxplay` (turns off GPU acceleration). Also check whether a VPN or Tailscale is up.
-- The mouse goes through a virtual stick, so aiming feels like a controller with a very fast thumb. Tune the sensitivity and curve in F3.
-- Sound should start with the stream. If it doesn't, click once inside the window.
-- Only tested on Debian-based distros with X11. Wayland should work but I haven't tried much.
 
 ## Uninstall
 
@@ -82,6 +123,8 @@ On the old `www.xbox.com/play` site the app also loads [Better xCloud](https://g
 bash ~/xboxplay/uninstall.sh          # keeps your login
 bash ~/xboxplay/uninstall.sh --purge  # also deletes ~/.config/XboxPlay
 ```
+
+An AppImage is just the file. Delete it.
 
 ## Security notes
 

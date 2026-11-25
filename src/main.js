@@ -14,6 +14,7 @@ const CHROME_UA = `Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, li
 const log = (...a) => console.log('[XboxPlay]', ...a);
 
 app.setName('XboxPlay');
+if (process.platform === 'linux') app.commandLine.appendSwitch('class', 'XboxPlay');
 app.userAgentFallback = CHROME_UA;
 if (process.env.XBOXPLAY_SAFE === '1') app.disableHardwareAcceleration();
 else {

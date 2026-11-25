@@ -1,0 +1,56 @@
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: linux-packages-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  packages:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: skip when this release already has packages
+        id: have
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          assets="$(gh release view "$tag" --json assets --jq '.assets[].name' 2>/dev/null || true)"
+          if printf '%s\n' "$assets" | grep -E -q '\.(AppImage|deb|rpm)$'; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: steps.have.outputs.skip != 'true'
+        with:
+          node-version: 22
+      - name: unit tests
+        if: steps.have.outputs.skip != 'true'
+        run: |
+          npm ci
+          node test/unit.js
+      - name: build AppImage, deb, and rpm
+        if: steps.have.outputs.skip != 'true'
+        run: npx electron-builder --linux AppImage deb rpm
+      - name: upload release assets
+        if: steps.have.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          if ! gh release view "$tag" >/dev/null 2>&1; then
+            gh release create "$tag" --title "XboxPlay $tag" --notes "Linux packages for $tag."
+          fi
+          gh release upload "$tag" dist/*.AppImage dist/*.deb dist/*.rpm --clobber

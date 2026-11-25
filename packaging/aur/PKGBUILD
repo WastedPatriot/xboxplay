@@ -1,0 +1,42 @@
+# Maintainer: WastedPatriot <WastedPatriot@users.noreply.github.com>
+# Binary package. The AppImage is produced by the GitHub release workflow on a v* tag.
+pkgname=xboxplay-bin
+pkgver=1.0.0
+pkgrel=1
+pkgdesc='Xbox remote play and xCloud desktop app for Linux'
+arch=('x86_64')
+url='https://github.com/WastedPatriot/xboxplay'
+license=('MIT')
+depends=('fuse2')
+options=('!strip')
+_image="XboxPlay-${pkgver}.AppImage"
+source=(
+  "${_image}::https://github.com/WastedPatriot/xboxplay/releases/download/v${pkgver}/${_image}"
+  "xboxplay.png::https://raw.githubusercontent.com/WastedPatriot/xboxplay/main/assets/icon.png"
+)
+# The AppImage checksum is SKIP until v1.0.0 is published. Replace it before pushing to the AUR.
+sha256sums=(
+  'SKIP'
+  'bd24d26e0c18a4d693d988f0689d045bafc69cb2bf49617ece62e06827a3b5fb'
+)
+noextract=("${_image}")
+
+package() {
+  install -Dm755 "${_image}" "${pkgdir}/opt/xboxplay/${_image}"
+  printf '%s\n' '#!/bin/sh' "exec /opt/xboxplay/${_image} \"\$@\"" > xboxplay-launcher
+  install -Dm755 xboxplay-launcher "${pkgdir}/usr/bin/xboxplay"
+  install -Dm644 "${srcdir}/xboxplay.png" "${pkgdir}/usr/share/icons/hicolor/256x256/apps/xboxplay.png"
+  install -Dm644 /dev/stdin "${pkgdir}/usr/share/applications/XboxPlay.desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Name=XboxPlay
+GenericName=Xbox remote play
+Comment=Xbox remote play and xCloud
+Keywords=xbox;cloud;gaming;remote;play;
+Exec=xboxplay %U
+Icon=xboxplay
+Terminal=false
+Categories=Game;
+StartupWMClass=XboxPlay
+EOF
+}

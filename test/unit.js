@@ -19,6 +19,11 @@ const cfg = fs.readFileSync(path.join(__dirname, '../src/config.js'), 'utf8');
 check(cfg.includes("'media'") && cfg.includes('speaker-selection'), 'media and speaker-selection are allowed');
 check(mainSrc.includes("OWN_SCRIPTS.unshift({ name: 'debug'"), 'debug flag is injected when XBOXPLAY_DEBUG=1');
 check(mainSrc.includes('contextIsolation: true') && mainSrc.includes('nodeIntegration: false') && mainSrc.includes('sandbox: true'), 'renderer stays sandboxed');
+check(mainSrc.includes("appendSwitch('class', 'XboxPlay')"), 'the window class is XboxPlay, matching the desktop file');
+const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '../package.json'), 'utf8'));
+check(pkg.version === '1.0.0' && pkg.productName === 'XboxPlay' && pkg.desktopName === 'XboxPlay.desktop', 'package version is 1.0.0 and the desktop name matches');
+const releaseYml = fs.readFileSync(path.join(__dirname, '../.github/workflows/release.yml'), 'utf8');
+check(releaseYml.includes("tags: ['v*']") && releaseYml.includes('AppImage') && releaseYml.includes('deb') && releaseYml.includes('rpm'), 'a v* tag builds an AppImage, a deb, and an rpm');
 check(mainSrc.includes('loadKeymap') && mainSrc.includes('JSON.stringify(loaded.map)'), 'keymap is loaded locally and serialized into the page');
 
 const mkbSrc = fs.readFileSync(path.join(__dirname, '../src/mkb.js'), 'utf8');
@@ -31,6 +36,8 @@ check(overlaySrc.includes("row('LB', 'Q')") && overlaySrc.includes("row('RB', 'R
 check(readme.includes('| Left stick | W A S D |') && readme.includes('I J K L') && readme.includes('keymap.json'), 'readme table shows the new map');
 check(readme.includes('| LB | Q |') && readme.includes('| RB | R |') && readme.includes('| Left stick click | F |') && readme.includes('| Right stick click | G, or the middle mouse button |'), 'readme bumpers are Q and R, stick clicks are F and G');
 check(!/on foot|hold V|Auto-switch|Driving mode/i.test(readme), 'readme dropped the old scheme');
+check(readme.includes('curl -fsSL https://raw.githubusercontent.com/WastedPatriot/xboxplay/main/install.sh | bash'), 'readme has the one-line install');
+check(readme.includes('XboxPlay-1.0.0.AppImage') && readme.includes('8BitDo') && readme.includes('XBOXPLAY_SAFE=1'), 'readme covers the AppImage, controllers, and the GPU safe mode');
 
 const BUTTON = { A: 0, B: 1, X: 2, Y: 3, LB: 4, RB: 5, LT: 6, RT: 7, View: 8, Menu: 9, L3: 10, R3: 11, DUp: 12, DDown: 13, DLeft: 14, DRight: 15, Guide: 16 };
 const AXIS = { LSUp: [1, -1], LSDown: [1, 1], LSLeft: [0, -1], LSRight: [0, 1], RSUp: [3, -1], RSDown: [3, 1], RSLeft: [2, -1], RSRight: [2, 1] };

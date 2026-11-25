@@ -1,0 +1,44 @@
+# Local build, from the repo root:
+#   flatpak-builder --user --install --force-clean build-dir packaging/flatpak/com.wastedpatriot.XboxPlay.yml
+# Needs org.freedesktop.Platform//25.08, the matching SDK, and org.freedesktop.Sdk.Extension.node22.
+#
+# This file uses a directory source and network during the build so it can run npm ci.
+# Flathub will not accept that. See packaging/README.md before submitting.
+app-id: com.wastedpatriot.XboxPlay
+runtime: org.freedesktop.Platform
+runtime-version: '25.08'
+sdk: org.freedesktop.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.node22
+command: xboxplay
+finish-args:
+  - --share=network
+  - --share=ipc
+  - --socket=fallback-x11
+  - --socket=wayland
+  - --socket=pulseaudio
+  - --device=dri
+  - --device=all
+build-options:
+  build-args:
+    - --share=network
+modules:
+  - name: xboxplay
+    buildsystem: simple
+    build-options:
+      append-path: /usr/lib/sdk/node22/bin
+      env:
+        NPM_CONFIG_AUDIT: "false"
+        NPM_CONFIG_FUND: "false"
+    build-commands:
+      - npm ci --no-audit --no-fund
+      - mkdir -p /app/lib/xboxplay
+      - cp -a src assets keymap.example.json package.json node_modules /app/lib/xboxplay/
+      - install -Dm755 packaging/flatpak/xboxplay.sh /app/bin/xboxplay
+      - install -Dm644 packaging/flatpak/com.wastedpatriot.XboxPlay.desktop /app/share/applications/com.wastedpatriot.XboxPlay.desktop
+      - install -Dm644 packaging/flatpak/com.wastedpatriot.XboxPlay.metainfo.xml /app/share/metainfo/com.wastedpatriot.XboxPlay.metainfo.xml
+      - install -Dm644 assets/icon.png /app/share/icons/hicolor/256x256/apps/com.wastedpatriot.XboxPlay.png
+      - install -Dm644 assets/icon.svg /app/share/icons/hicolor/scalable/apps/com.wastedpatriot.XboxPlay.svg
+    sources:
+      - type: dir
+        path: ../..

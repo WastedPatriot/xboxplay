@@ -1,0 +1,55 @@
+name: Bug
+description: Something broke while playing or installing.
+title: "[bug] "
+labels: []
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, and what you expected instead.
+    validations:
+      required: true
+  - type: input
+    id: distro
+    attributes:
+      label: Distro and version
+      placeholder: Debian 13, Fedora 41, Arch, SteamOS
+    validations:
+      required: true
+  - type: dropdown
+    id: desktop
+    attributes:
+      label: Desktop session
+      options:
+        - X11
+        - Wayland
+        - Not sure
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: How you installed it
+      options:
+        - curl install script
+        - AppImage
+        - deb
+        - rpm
+        - git clone and npm
+        - Flatpak
+    validations:
+      required: true
+  - type: input
+    id: input
+    attributes:
+      label: Controller, or keyboard and mouse
+      placeholder: 8BitDo Ultimate 2C USB, or keyboard
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Terminal output
+      description: Run it from a terminal and paste the lines that start with [XboxPlay]. Leave out anything that looks like a token.
+      render: text

@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.wastedpatriot.XboxPlay</id>
+  <name>XboxPlay</name>
+  <summary>Xbox remote play and xCloud on Linux</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <description>
+    <p>Play your Xbox and Xbox Cloud Gaming in a window, with a controller or the keyboard and mouse.</p>
+    <p>Not affiliated with Microsoft. You need your own Xbox account.</p>
+  </description>
+  <launchable type="desktop-id">com.wastedpatriot.XboxPlay.desktop</launchable>
+  <url type="homepage">https://github.com/WastedPatriot/xboxplay</url>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="1.0.0" date="2026-11-25"/>
+  </releases>
+</component>
