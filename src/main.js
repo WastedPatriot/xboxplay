@@ -63,7 +63,7 @@ if (!app.requestSingleInstanceLock()) app.quit();
 
 // ---- injected scripts ----------------------------------------------------
 const read = f => fs.readFileSync(path.join(__dirname, f), 'utf8');
-const OWN_SCRIPTS = [{ name: 'stream', code: read('stream.js') }, { name: 'overlay', code: read('overlay.js') }, { name: 'mkb', code: read('mkb.js') }];
+const OWN_SCRIPTS = [{ name: 'stream', code: read('stream.js') }, { name: 'overlay', code: read('overlay.js') }, { name: 'mkb', code: read('mkb.js') }, { name: 'idle', code: read('idle.js') }];
 const sens = parseFloat(process.env.XBOXPLAY_SENS);
 if (sens > 0) OWN_SCRIPTS.unshift({ name: 'sens', code: `window.__XBOXPLAY_SENS=${JSON.stringify(String(sens))}` });
 if (process.env.XBOXPLAY_QUALITY) OWN_SCRIPTS.unshift({ name: 'quality', code: 'window.__XBOXPLAY_QUALITY=' + JSON.stringify(String(process.env.XBOXPLAY_QUALITY)) + ';' });

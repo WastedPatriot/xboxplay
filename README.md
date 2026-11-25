@@ -133,6 +133,8 @@ While a game is streaming, the top right shows delay and bitrate. `HW` means the
 
 If the stream drops, XboxPlay waits a few seconds, then tries to reconnect up to three times. The first try restarts the network path. After that it clicks a Reconnect button on the page if there is one. Then it asks you to press F5. Turn this off in F3.
 
+If you step away, XboxPlay stays connected: it clicks "I'm still here" when that prompt shows, and sends a tiny stick nudge the game ignores. Turn that off in F3.
+
 F3 also has stream quality. Auto leaves Xbox's bitrate alone and keeps the playback buffer short. Stable asks for about 6 Mb/s and leaves the buffer alone. High asks for about 15 Mb/s. The bitrate applies the next time the stream connects. `XBOXPLAY_QUALITY=stable` (or `high`, or `auto`) is the same choice when you haven't picked one in F3 yet.
 
 ## Better xCloud

@@ -27,6 +27,11 @@ check(builder.includes('Keywords: xbox;cloud;gaming;remote;play;') && builder.in
 const flatpakDesktop = fs.readFileSync(path.join(__dirname, '../flatpak/com.wastedpatriot.XboxPlay.desktop'), 'utf8');
 check(flatpakDesktop.includes('Name=XboxPlay') && flatpakDesktop.includes('Keywords=xbox;cloud;gaming;remote;play;') && flatpakDesktop.includes('StartupWMClass=XboxPlay') && flatpakDesktop.includes('Terminal=false'), 'the Flatpak desktop entry matches');
 check(mainSrc.includes("name: 'stream'"), 'stream helper is injected');
+check(mainSrc.includes("name: 'idle'") && mainSrc.indexOf("name: 'mkb'") < mainSrc.indexOf("name: 'idle'"), 'idle helper is injected after the gamepad script');
+const overlaySrc = fs.readFileSync(path.join(__dirname, '../src/overlay.js'), 'utf8');
+check(overlaySrc.includes("toggle('idle', 'Keep the stream awake when you step away', '1')"), 'anti-idle is on in F3 unless turned off');
+const readme = fs.readFileSync(path.join(__dirname, '../README.md'), 'utf8');
+check(readme.includes("I'm still here"), 'readme mentions the idle prompt');
 check(mainSrc.includes('backgroundThrottling: false'), 'the page is not background-throttled');
 check(mainSrc.includes('disable-background-timer-throttling') && mainSrc.includes('disable-renderer-backgrounding') && mainSrc.includes('disable-backgrounding-occluded-windows'), 'Chromium is told not to throttle a covered window');
 check(mainSrc.includes("powerSaveBlocker.start('prevent-display-sleep')"), 'the display is kept awake');
@@ -489,6 +494,159 @@ function fakeInput(root) {
     store['xboxplay.quality'] = 'auto';
     await vm.runInContext('pc.setRemoteDescription({ type: "answer", sdp: "v=0" })', ctx);
     check(pc.receivers[0].playoutDelayHint === 0, 'auto asks the playback buffer to stay short');
+  }
+
+  // Inactivity dialog, pointer-lock release, and the idle nudge.
+  {
+    const store = {};
+    function el(tag, text, kids, extra) {
+      extra = extra || {};
+      return {
+        tagName: tag,
+        textContent: text,
+        hidden: !!extra.hidden,
+        disabled: !!extra.disabled,
+        shadowRoot: extra.shadow || null,
+        attrs: extra.attrs || {},
+        kids: kids || [],
+        clicked: 0,
+        getAttribute(name) { return this.attrs[name] || null; },
+        click() { this.clicked++; },
+        contains(other) {
+          const walk = (n) => (n.kids || []).some(k => k === other || walk(k));
+          return walk(this);
+        },
+        querySelectorAll(sel) {
+          const all = [];
+          const walk = (nodes) => { for (const k of nodes) { all.push(k); walk(k.kids || []); } };
+          walk(this.kids);
+          if (sel === '*') return all;
+          return all.filter(n => {
+            const t = String(n.tagName || '').toUpperCase();
+            const role = n.attrs && n.attrs.role;
+            const type = n.attrs && n.attrs.type;
+            return t === 'BUTTON' || role === 'button' || (t === 'INPUT' && (type === 'button' || type === 'submit'));
+          });
+        },
+      };
+    }
+    const doc = el('DIV', '', []);
+    doc.pointerLockElement = null;
+    doc.exited = 0;
+    doc.exitPointerLock = function () { this.exited++; this.pointerLockElement = null; };
+    let pageHidden = true;
+    function Document() {}
+    Object.defineProperty(Document.prototype, 'hidden', { configurable: true, get() { return pageHidden; } });
+    Object.defineProperty(Document.prototype, 'visibilityState', { configurable: true, get() { return pageHidden ? 'hidden' : 'visible'; } });
+    Document.prototype.hasFocus = function () { return false; };
+    const real = { id: '8BitDo', axes: [0, 0, 0, 0], buttons: [{ pressed: false, value: 0 }] };
+    function Navigator() {}
+    Navigator.prototype.getGamepads = function () { return [real]; };
+    let uiOpen = false;
+    function Element() {}
+    Element.prototype.attachShadow = function (init) {
+      this.shadowRoot = init && init.mode === 'closed' ? null : (init && init.root);
+      return init && init.root;
+    };
+    const ctx = {
+      window: {
+        localStorage: {
+          getItem(k) { return Object.prototype.hasOwnProperty.call(store, k) ? store[k] : null; },
+          setItem(k, v) { store[k] = String(v); },
+        },
+        __xboxplayUI: { isOpen() { return uiOpen; } },
+        addEventListener() {},
+      },
+      document: doc,
+      Document, Navigator, Element,
+      console, setTimeout, clearTimeout, setInterval() { return 0; }, clearInterval() {},
+      Date, Math, Number, String, Array, Object, Set, JSON,
+    };
+    ctx.window.window = ctx.window;
+    vm.createContext(ctx);
+    vm.runInContext(fs.readFileSync(path.join(__dirname, '../src/idle.js'), 'utf8'), ctx);
+    const api = vm.runInContext('window.__xboxplayIdle', ctx);
+    check(api.idleOn() === true, 'anti-idle is on when nothing is saved');
+    store['xboxplay.idle'] = '0';
+    check(api.idleOn() === false, 'anti-idle turns off from the F3 setting');
+    store['xboxplay.idle'] = '1';
+    check(api.stillHereText("I'm still here") && api.stillHereText("I'M STILL HERE") && api.stillHereText('I’m still here'), 'the English confirm button matches, including a curly apostrophe');
+    check(api.stillHereText("I'm still here.") && api.stillHereText('Je suis toujours là') && api.stillHereText('Ich bin noch da') && api.stillHereText('まだここにいます'), 'localised confirm labels match');
+    check(!api.stillHereText('Resume') && !api.stillHereText('Cancel'), 'unrelated buttons are not the confirm button');
+
+    const still = el('BUTTON', "I'm still here");
+    const shadow = el('DIV', '', [still]);
+    const host = el('DIV', '', [], { shadow });
+    const resume = el('BUTTON', 'Resume', [], { attrs: { class: 'still-here' } });
+    const tree = el('DIV', '', [host, resume]);
+    check(api.findStillHere(tree) === still, 'the confirm button is found inside a shadow root, not by its class');
+    check(api.findStillHere(el('DIV', '', [resume])) === null, 'a Resume button is left alone');
+    const hiddenBtn = el('BUTTON', "I'm still here", [], { hidden: true });
+    check(api.findStillHere(el('DIV', '', [hiddenBtn])) === null, 'a hidden confirm button is not clicked');
+    const go = el('BUTTON', 'Continuar');
+    const cancel = el('BUTTON', 'Cancel');
+    const dialog = el('DIV', 'Are you still here? Due to inactivity, your game streaming session will end soon.', [cancel, go], { attrs: { role: 'dialog' } });
+    check(api.findStillHere(el('DIV', '', [dialog])) === go, 'an inactivity dialog falls back to its confirm button');
+    check(api.findStillHere(el('DIV', '', [el('DIV', 'Due to inactivity, your game streaming session will end soon.', [cancel], { attrs: { role: 'alertdialog' } })])) === null, 'a cancel-only dialog is not confirmed');
+    const save = el('BUTTON', 'Save');
+    check(api.findStillHere(el('DIV', '', [el('DIV', 'Stream quality', [save], { attrs: { role: 'dialog' } })])) === null, 'an ordinary dialog is not confirmed');
+
+    const t = 1000;
+    check(api.nudgeDue(t, t + 2 * 60 * 1000, true) === false, 'two quiet minutes is not a nudge');
+    check(api.nudgeDue(t, t + api.NUDGE_AFTER, true) === true, 'a few quiet minutes is a nudge');
+    check(api.nudgeDue(t, t + api.NUDGE_AFTER, false) === false, 'the nudge stays off when anti-idle is off');
+    const nudged = api.nudgePad(real);
+    check(Math.abs(nudged.axes[2] - 0.02) < 0.001 && nudged.axes[0] === 0 && nudged.axes[1] === 0 && nudged.axes[3] === 0, 'the nudge is a tiny right-stick move');
+    check(real.axes[2] === 0 && nudged !== real, 'the original pad is unchanged');
+    let released = 0;
+    check(api.releaseCapture({ pointerLockElement: {}, exitPointerLock() { released++; } }, true) === true && released === 1, 'a dialog releases the mouse');
+    check(api.releaseCapture({ pointerLockElement: {}, exitPointerLock() {} }, false) === false, 'the mouse stays captured when nothing is showing');
+
+    const page = new ctx.Document();
+    check(page.hidden === false && page.visibilityState === 'visible' && page.hasFocus() === true, 'while anti-idle is on the page is not treated as hidden');
+    store['xboxplay.idle'] = '0';
+    check(page.hidden === true && page.visibilityState === 'hidden' && page.hasFocus() === false, 'turning anti-idle off reports the real page visibility');
+    store['xboxplay.idle'] = '1';
+
+    const nav = new ctx.Navigator();
+    const early = nav.getGamepads();
+    check(early[0] === real && real.axes[2] === 0, 'a fresh session is not nudged');
+    api.markIdle(Date.now() - api.NUDGE_AFTER);
+    const moved = nav.getGamepads();
+    check(moved[0] !== real && Math.abs(moved[0].axes[2] - 0.02) < 0.001 && real.axes[2] === 0, 'the pad the page reads is nudged only after the quiet wait');
+    real.axes[2] = 0.4;
+    const busy = nav.getGamepads();
+    check(busy[0] === real && real.axes[2] === 0.4, 'real stick movement is passed through');
+    real.axes[2] = 0;
+    store['xboxplay.idle'] = '0';
+    api.markIdle(Date.now() - api.NUDGE_AFTER);
+    check(nav.getGamepads()[0] === real, 'the nudge does not run when anti-idle is off');
+    store['xboxplay.idle'] = '1';
+
+    uiOpen = true;
+    doc.pointerLockElement = {};
+    api.tick();
+    check(doc.exited === 1 && doc.pointerLockElement === null, 'the XboxPlay panel releases the mouse while it is open');
+    uiOpen = false;
+    const saveBtn = el('BUTTON', 'Save');
+    doc.kids.push(el('DIV', 'Stream quality', [saveBtn], { attrs: { role: 'dialog' } }));
+    doc.pointerLockElement = {};
+    api.tick();
+    check(saveBtn.clicked === 0 && doc.pointerLockElement === null, 'an ordinary dialog releases the mouse and is not clicked');
+    doc.kids.pop();
+
+    const trapped = el('BUTTON', "I'm still here");
+    const closed = el('DIV', '', [trapped]);
+    const hostEl = new ctx.Element();
+    hostEl.attachShadow({ mode: 'closed', root: closed });
+    check(hostEl.shadowRoot == null && api.findStillHere(doc) === trapped, 'a closed shadow confirm button is still found');
+    doc.pointerLockElement = { locked: true };
+    api.tick();
+    check(trapped.clicked === 1 && doc.pointerLockElement === null, 'the confirm button is clicked even while the mouse was captured');
+    const clicks = trapped.clicked;
+    doc.pointerLockElement = { locked: true };
+    api.tick();
+    check(trapped.clicked === clicks, 'the confirm button is not clicked again straight away');
   }
 
   if (failed) {

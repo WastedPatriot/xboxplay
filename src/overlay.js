@@ -141,6 +141,7 @@
         el('label', { class: 'set' }, el('span', null, 'Stream quality'), quality),
         el('p', { class: 'note' }, 'Bitrate applies the next time the stream connects.'),
         toggle('reconnect', 'Reconnect if the stream drops', '1'),
+        toggle('idle', 'Keep the stream awake when you step away', '1'),
         slider('sens', 'Mouse sensitivity', 0.2, 8, 0.1, sensDef, v => v.toFixed(1)),
         slider('trackpad', 'Trackpad boost (small movements)', 1, 6, 0.1, 2.5, v => v.toFixed(1) + '×'),
         slider('antidz', 'Aim kick (beats the game deadzone)', 0, 0.5, 0.01, 0.22, v => v.toFixed(2)),
