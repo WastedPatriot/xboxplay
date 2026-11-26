@@ -19,6 +19,7 @@
     const m = window.__xboxplayMKB;
     if (!m || !e) return false;
     if (e.target && e.target.closest && e.target.closest('xboxplay-ui')) return false;
+    if (hitsUi(e)) return false;
     const key = e.type === 'keydown' || e.type === 'keyup' || e.type === 'keypress';
     if (key) return !!(m.takingKeys && m.takingKeys(e));
     return !!(m.takingMouse && m.takingMouse());
@@ -66,7 +67,7 @@
 
   const M = window.__xboxplayMKB = {
     enabled: pref ? pref === '1' : true, forceActive: false,
-    takingKeys(e) { return keysLive() && !isTyping(e); },
+    takingKeys(e) { return keysLive() && !isTyping(e) && !hitsUi(e); },
     takingMouse() { return pointerOn(); },
     controls() { return NAMES.slice(); },
     active() { return this.takingKeys(); },
@@ -302,13 +303,35 @@
     streamLive = streaming();
     return streamLive;
   }
+  // A dialog, button, or menu belongs to the page. Clicks there must not be captured.
+  function uiNode(n) {
+    if (!n || !n.tagName) return false;
+    const tag = String(n.tagName).toUpperCase();
+    if (tag === 'XBOXPLAY-UI' || tag === 'BUTTON' || tag === 'A' || tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA' || tag === 'LABEL') return true;
+    let role = '', modal = '';
+    try { role = (n.getAttribute && n.getAttribute('role')) || ''; } catch (e) {}
+    try { modal = (n.getAttribute && n.getAttribute('aria-modal')) || ''; } catch (e) {}
+    if (role === 'dialog' || role === 'alertdialog' || role === 'button' || role === 'menu' || role === 'menuitem') return true;
+    return modal === 'true';
+  }
+  function eventPath(e) {
+    if (!e) return [];
+    try {
+      const path = e.composedPath && e.composedPath();
+      if (path && path.length) return path;
+    } catch (err) {}
+    return e.target ? [e.target] : [];
+  }
+  function hitsUi(e) { return eventPath(e).some(uiNode); }
   function streamTarget(e) {
     if (!streaming()) return null;
-    const path = (e.composedPath && e.composedPath()) || [e.target];
-    if (path.some(n => n && n.tagName === 'XBOXPLAY-UI')) return null;
+    const path = eventPath(e);
+    if (path.some(uiNode)) return null;
     const hit = path.find(n => n && (n.tagName === 'VIDEO' || n.tagName === 'CANVAS') && big(n));
     if (hit) return hit;
-    return findMedia(document, []).find(el => big(el) && (el.tagName === 'CANVAS' || el.readyState >= 2)) || document.body;
+    // A click that landed on some other element (a dialog, a button) is not the picture.
+    if (path.some(n => n && n.tagName && n.tagName !== 'BODY' && n.tagName !== 'HTML')) return null;
+    return findMedia(document, []).find(el => big(el) && (el.tagName === 'CANVAS' || el.readyState >= 2)) || null;
   }
   function unmuteMedia() {
     try { document.querySelectorAll('video, audio').forEach(el => { el.muted = false; const p = el.play && el.play(); if (p && p.catch) p.catch(() => {}); }); }
@@ -381,6 +404,11 @@
   on('mousemove', e => { if (!hasRaw) applyMove(e); });
   on('mousedown', e => {
     refreshStream();
+    // xCloud dialogs (the fullscreen warning, menus) must receive the click.
+    if (hitsUi(e)) {
+      try { if (document.pointerLockElement && document.exitPointerLock) document.exitPointerLock(); } catch (err) {}
+      return;
+    }
     // Clicking the picture captures the mouse. Also clears the Esc pause, even if the lock fails.
     const streamEl = M.enabled && !document.pointerLockElement && !M.forceActive && streamTarget(e);
     if (window.__XBOXPLAY_DEBUG && M.enabled && !document.pointerLockElement) {
@@ -398,11 +426,12 @@
     mouse.add(e.button); ts = performance.now(); eat(e);
   });
   on('mouseup', e => {
+    if (hitsUi(e)) return;
     if (!mouse.delete(e.button)) return;
     ts = performance.now();
     if (pointerOn()) eat(e);
   });
-  on('contextmenu', e => { if (pointerOn()) e.preventDefault(); });
+  on('contextmenu', e => { if (pointerOn() && !hitsUi(e)) e.preventDefault(); });
   document.addEventListener('pointerlockchange', () => {
     const locked = !!document.pointerLockElement;
     debug('pointer lock ' + (locked ? 'on' : 'off'));

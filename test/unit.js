@@ -325,6 +325,20 @@ function tmpDir() { return fs.mkdtempSync(path.join(os.tmpdir(), 'xboxplay-keyma
   }
 
   {
+    const { ctx } = load();
+    let clicks = 0;
+    ctx.window.addEventListener('click', () => { clicks++; });
+    const button = { tagName: 'BUTTON', getAttribute() { return null; } };
+    const dialog = { tagName: 'DIV', getAttribute(name) { return name === 'role' ? 'dialog' : null; } };
+    const down = ctx._fire('mousedown', { button: 0, target: button, composedPath() { return [button, dialog]; } });
+    const click = ctx._fire('click', { button: 0, target: button, composedPath() { return [button, dialog]; } });
+    check(!down.prevented && !down.stopped && clicks === 1 && !click.prevented, 'a click on a dialog button reaches the page');
+    const video = { tagName: 'VIDEO', getBoundingClientRect() { return { width: 1280, height: 720 }; }, readyState: 4 };
+    const picture = ctx._fire('mousedown', { button: 0, target: video, composedPath() { return [video]; } });
+    check(picture.prevented, 'a click on the picture is still captured');
+  }
+
+  {
     const { ctx, gp } = load();
     let seen = 0;
     ctx.window.addEventListener('keydown', () => { seen++; });
@@ -682,6 +696,8 @@ function tmpDir() { return fs.mkdtempSync(path.join(os.tmpdir(), 'xboxplay-keyma
     Object.defineProperty(Document.prototype, 'hidden', { configurable: true, get() { return pageHidden; } });
     Object.defineProperty(Document.prototype, 'visibilityState', { configurable: true, get() { return pageHidden ? 'hidden' : 'visible'; } });
     Document.prototype.hasFocus = function () { return false; };
+    let realFull = null;
+    Object.defineProperty(Document.prototype, 'fullscreenElement', { configurable: true, get() { return realFull; } });
     const real = { id: '8BitDo', axes: [0, 0, 0, 0], buttons: [{ pressed: false, value: 0 }] };
     function Navigator() {}
     Navigator.prototype.getGamepads = function () { return [real]; };
@@ -733,6 +749,13 @@ function tmpDir() { return fs.mkdtempSync(path.join(os.tmpdir(), 'xboxplay-keyma
     check(api.findStillHere(el('DIV', '', [el('DIV', 'Due to inactivity, your game streaming session will end soon.', [cancel], { attrs: { role: 'alertdialog' } })])) === null, 'a cancel-only dialog is not confirmed');
     const save = el('BUTTON', 'Save');
     check(api.findStillHere(el('DIV', '', [el('DIV', 'Stream quality', [save], { attrs: { role: 'dialog' } })])) === null, 'an ordinary dialog is not confirmed');
+    const goBack = el('BUTTON', 'Return to fullscreen');
+    const leave = el('BUTTON', 'Exit fullscreen');
+    const warn = el('DIV', 'Warning. Exiting full screen mode can degrade the gameplay experience.', [goBack, leave], { attrs: { role: 'dialog' } });
+    check(api.findReturnFullscreen(el('DIV', '', [warn])) === goBack, 'the fullscreen warning offers return, not exit');
+    check(api.returnFullscreenLabel('Revenir en plein écran') === true, 'a localised return button is recognised');
+    check(api.findReturnFullscreen(el('DIV', '', [el('DIV', 'Stream quality', [save], { attrs: { role: 'dialog' } })])) === null, 'an ordinary dialog is not a fullscreen warning');
+    check(api.findReturnFullscreen(el('DIV', '', [el('DIV', 'Exiting full screen mode can degrade the gameplay experience.', [leave], { attrs: { role: 'dialog' } })])) === null, 'exit fullscreen is not clicked for you');
 
     const t = 1000;
     check(api.nudgeDue(t, t + 2 * 60 * 1000, true) === false, 'two quiet minutes is not a nudge');
@@ -753,13 +776,19 @@ function tmpDir() { return fs.mkdtempSync(path.join(os.tmpdir(), 'xboxplay-keyma
     check(api.pageHidden() === true, 'anti-idle still knows when the window is really hidden');
     const prevQS = doc.querySelectorAll.bind(doc);
     doc.querySelectorAll = (sel) => (sel === 'video' ? [{ videoWidth: 1920, paused: false, srcObject: {} }] : prevQS(sel));
+    doc.documentElement = { tagName: 'HTML' };
     const live = new ctx.Document();
     check(live.hidden === false && live.visibilityState === 'visible' && live.hasFocus() === true, 'a playing picture stays visible and focused');
+    check(live.fullscreenElement === doc.documentElement, 'a playing stream still looks fullscreen');
+    realFull = { tagName: 'DIV' };
+    check(live.fullscreenElement && live.fullscreenElement.tagName === 'DIV', 'a real fullscreen element is reported as it is');
+    realFull = null;
     store['xboxplay.idle'] = '0';
     check(new ctx.Document().hidden === false && new ctx.Document().hasFocus() === true, 'a playing picture stays visible even if anti-idle is off');
     store['xboxplay.idle'] = '1';
     doc.querySelectorAll = prevQS;
     check(new ctx.Document().hidden === false, 'with no picture, anti-idle still reports the page as visible');
+    check(new ctx.Document().fullscreenElement == null, 'with no picture the page sees that fullscreen has ended');
 
     const nav = new ctx.Navigator();
     const early = nav.getGamepads();
@@ -788,6 +817,14 @@ function tmpDir() { return fs.mkdtempSync(path.join(os.tmpdir(), 'xboxplay-keyma
     doc.pointerLockElement = {};
     api.tick();
     check(saveBtn.clicked === 0 && doc.pointerLockElement === null, 'an ordinary dialog releases the mouse and is not clicked');
+    doc.kids.pop();
+    const returnBtn = el('BUTTON', 'Return to fullscreen');
+    const exitBtn = el('BUTTON', 'Exit fullscreen');
+    doc.kids.push(el('DIV', 'Warning. Exiting full screen mode can degrade the gameplay experience.', [returnBtn, exitBtn], { attrs: { role: 'dialog' } }));
+    api.tick();
+    check(returnBtn.clicked === 1 && exitBtn.clicked === 0, 'the fullscreen warning is sent back to fullscreen');
+    api.tick();
+    check(returnBtn.clicked === 1, 'the fullscreen warning is not clicked again straight away');
     doc.kids.pop();
 
     const trapped = el('BUTTON', "I'm still here");
@@ -904,6 +941,19 @@ function tmpDir() { return fs.mkdtempSync(path.join(os.tmpdir(), 'xboxplay-keyma
     step = api.shouldReattach({ since: 0, sig: '0:0:0', cool: 0 }, { live: false, poll: 'none', physicalSig: '0:1:0', delivered: false }, 9000);
     check(step.action === 'ok', 'a controller change outside a stream does not re-attach');
     check(api.normalizePoll('All') === 'all' && api.normalizePoll('NONE') === 'none', 'polling mode is read as all or none');
+    const video = { srcObject: {}, videoWidth: 1280, readyState: 4 };
+    ctx.document.querySelectorAll = (sel) => (sel === 'video' ? [video] : []);
+    const player = { mode: '', setPollingMode(mode) { this.mode = mode; } };
+    ctx.window.StreamPlayer = player;
+    check(api.reattach('manual') === true && player.mode === 'all', 'a live stream turns controller polling on');
+    player.setPollingMode('none');
+    check(player.mode === 'all', 'polling stays on while the game is showing');
+    ctx.window.__xboxplayModal = true;
+    player.setPollingMode('none');
+    check(player.mode === 'none', 'an open dialog can take the controller for its buttons');
+    ctx.window.__xboxplayModal = false;
+    player.setPollingMode('none');
+    check(player.mode === 'all', 'closing the dialog gives the controller back to the game');
   }
 
   if (failed) {

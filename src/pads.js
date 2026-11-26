@@ -80,6 +80,21 @@
   let lastAt = 0;
   let pump = null;
 
+  function shown(el) {
+    if (!el || el.hidden) return false;
+    try { if (el.getAttribute && el.getAttribute('aria-hidden') === 'true') return false; } catch (e) {}
+    try { if (typeof el.getClientRects === 'function' && el.getClientRects().length === 0) return false; } catch (e) {}
+    return true;
+  }
+  // xCloud sets polling to "none" while its own menu is up, so the pad can move that menu.
+  function modalOpen() {
+    try { if (window.__xboxplayModal) return true; } catch (e) {}
+    try {
+      const nodes = document.querySelectorAll ? document.querySelectorAll('[role="dialog"], [role="alertdialog"], dialog[open]') : [];
+      for (const n of nodes) if (shown(n)) return true;
+    } catch (e) {}
+    return false;
+  }
   function streamLive() {
     try {
       const nodes = document.querySelectorAll ? document.querySelectorAll('video') : [];
@@ -96,7 +111,7 @@
     const orig = obj.setPollingMode;
     function wrapped(mode) {
       let next = mode;
-      if (normalizePoll(mode) === 'none' && streamLive()) next = 'all';
+      if (normalizePoll(mode) === 'none' && streamLive() && !modalOpen()) next = 'all';
       const named = normalizePoll(next);
       if (named) poll = named;
       return orig.call(this, next);
@@ -144,7 +159,14 @@
     } catch (e) {}
     try { huntFiber(); } catch (e) {}
   }
+  function releaseForModal() {
+    poll = 'none';
+    for (const obj of managers) {
+      try { obj.setPollingMode('none'); } catch (e) {}
+    }
+  }
   function forceAll() {
+    if (modalOpen()) { releaseForModal(); return; }
     poll = 'all';
     try { if (navigator && 'gamepadInputEmulation' in navigator) navigator.gamepadInputEmulation = 'gamepad'; } catch (e) {}
     hunt();
@@ -174,7 +196,8 @@
   }
   function reattach(reason) {
     const now = Date.now();
-    if (reason !== 'watch' && reason !== 'manual' && now - lastAt < 400) return false;
+    if (modalOpen()) { releaseForModal(); return false; }
+    if (reason !== 'watch' && reason !== 'manual' && reason !== 'modal' && now - lastAt < 400) return false;
     lastAt = now;
     try { if (window.__xboxplayMKB && window.__xboxplayMKB.releaseVirtual) window.__xboxplayMKB.releaseVirtual(); } catch (e) {}
     forceAll();
@@ -189,8 +212,10 @@
   function sample(now) {
     const physical = nativePads();
     const physicalSig = padSig(physical);
+    const open = modalOpen();
     const delivered = reads > 0 && deliveredSig === physicalSig && poll !== 'none';
-    return { live: streamLive(), poll, physicalSig, delivered, now };
+    // A dialog is using the pad. Don't treat "none" as a dropped controller.
+    return { live: streamLive() && !open, poll: open ? 'all' : poll, physicalSig, delivered, now };
   }
   function tickWatch(now) {
     const decided = shouldReattach(watch, sample(now), now || Date.now());
@@ -204,7 +229,7 @@
     noteDelivered(list) { reads++; deliveredSig = padSig(list); },
     polling() { return poll; },
     holding() { return Date.now() < holdUntil; },
-    reattach,
+    modalOpen, releaseForModal, reattach,
   };
   try { window.addEventListener('blur', () => { holdUntil = Date.now() + 8000; }, true); } catch (e) {}
   try { window.addEventListener('focus', () => { reattach('focus'); }, true); } catch (e) {}

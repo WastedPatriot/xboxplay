@@ -48,6 +48,19 @@
     const t = norm(text);
     return !t || CANCEL.test(t);
   }
+  function fullscreenWarning(text) {
+    const t = norm(text);
+    if (!t) return false;
+    return t.includes('exiting full screen') || t.includes('exiting fullscreen') || t.includes('degrade the gameplay');
+  }
+  function returnFullscreenLabel(text) {
+    const t = norm(text);
+    if (!t || t.length > 48) return false;
+    if (/^(exit|leave|quit|quitter|salir|verlassen|sair|esci)\b/.test(t)) return false;
+    const full = /full ?screen|plein ecran|pantalla completa|vollbild|tela cheia|schermo intero/.test(t);
+    const back = /return|back|revenir|volver|zuruck|voltar|torna|retour|regresar/.test(t);
+    return full && back;
+  }
   function visible(el) {
     if (!el || el.hidden || el.disabled) return false;
     try { if (el.getAttribute && el.getAttribute('aria-hidden') === 'true') return false; } catch (e) {}
@@ -82,7 +95,7 @@
     const buttons = [];
     const dialogs = [];
     const inactivity = [];
-    if (!root) return { button: null, modal: false };
+    if (!root) return { button: null, modal: false, back: null };
     function take(el) {
       if (!el || el === root || !visible(el)) return;
       const text = textOf(el);
@@ -124,10 +137,21 @@
         if (button) break;
       }
     }
-    return { button, modal: dialogs.length > 0 || inactivity.length > 0 || !!button };
+    let back = null;
+    for (const d of dialogs) {
+      if (!fullscreenWarning(textOf(d))) continue;
+      const inner = list(d, 'button, [role="button"], input[type="button"], input[type="submit"]').filter(el => isButton(el) && visible(el));
+      const pool = inner.length ? inner : buttons.filter(b => d.contains ? d.contains(b) : false);
+      for (const b of pool) if (returnFullscreenLabel(textOf(b))) { back = b; break; }
+      if (back) break;
+    }
+    return { button, back, modal: dialogs.length > 0 || inactivity.length > 0 || !!button };
   }
   function findStillHere(root) {
     return inspect(root).button;
+  }
+  function findReturnFullscreen(root) {
+    return inspect(root).back;
   }
 
   function nudgeDue(lastInput, now, enabled) {
@@ -178,7 +202,9 @@
   let sawStream = false;
   let nudgeUntil = 0;
   let lastClick = 0;
+  let lastFull = 0;
   let released = false;
+  let wasModal = false;
 
   function noteInput(now) {
     lastInput = now || Date.now();
@@ -292,20 +318,80 @@
     }
     if (typeof document !== 'undefined') overrideVisibility(document, '__xboxplayVis');
   }
+  // xCloud warns when document fullscreen ends during a stream, then its buttons
+  // do nothing if the click is captured. While a picture is up, keep reporting
+  // fullscreen and swallow the leave event so that warning never opens.
+  let realFullscreen = null;
+  function overrideFullscreen(obj, mark) {
+    if (!obj || obj[mark]) return;
+    const names = ['fullscreenElement', 'webkitFullscreenElement', 'webkitCurrentFullScreenElement'];
+    let changed = false;
+    for (const name of names) {
+      const desc = Object.getOwnPropertyDescriptor(obj, name);
+      if (!desc || !desc.get || desc.configurable === false) continue;
+      if (!realFullscreen) realFullscreen = desc.get;
+      const orig = desc.get;
+      try {
+        Object.defineProperty(obj, name, {
+          configurable: true,
+          get() {
+            let real = null;
+            try { real = orig.call(this); } catch (e) {}
+            if (real) return real;
+            if (!streamUp()) return real;
+            const doc = typeof document !== 'undefined' ? document : null;
+            return (doc && (doc.documentElement || doc.body)) || real;
+          },
+        });
+        changed = true;
+      } catch (e) {}
+    }
+    if (changed) obj[mark] = true;
+  }
+  function onFullscreenEvent(e) {
+    let real = null;
+    try { if (realFullscreen) real = realFullscreen.call(document); } catch (err) {}
+    if (real || !streamUp()) return;
+    try { e.stopImmediatePropagation(); } catch (err) {}
+    try { e.stopPropagation(); } catch (err) {}
+  }
+  let fullListen = false;
+  function keepFullscreen() {
+    const Doc = typeof Document === 'function' ? Document.prototype : null;
+    if (Doc) overrideFullscreen(Doc, '__xboxplayFull');
+    if (typeof document !== 'undefined') overrideFullscreen(document, '__xboxplayFullDoc');
+    if (fullListen) return;
+    fullListen = true;
+    try { window.addEventListener('fullscreenchange', onFullscreenEvent, true); } catch (e) {}
+    try { window.addEventListener('webkitfullscreenchange', onFullscreenEvent, true); } catch (e) {}
+  }
   function scan() {
     try { keepVisible(); } catch (e) {}
+    try { keepFullscreen(); } catch (e) {}
     installWrap();
     const doc = typeof document !== 'undefined' ? document : null;
     const ui = window.__xboxplayUI;
     const open = !!(ui && ui.isOpen && ui.isOpen());
     const seen = inspect(doc);
     const modal = open || seen.modal;
+    try { window.__xboxplayModal = modal; } catch (e) {}
+    if (modal !== wasModal) {
+      wasModal = modal;
+      try {
+        const pads = window.__xboxplayPads;
+        if (pads && pads.reattach) pads.reattach('modal');
+      } catch (e) {}
+    }
     if (modal) {
       if (releaseCapture(doc, true) && !released) log('released the mouse for a dialog');
       released = true;
     } else released = false;
-    if (!idleOn() || !seen.button) return;
     const now = Date.now();
+    if (seen.back && now - lastFull >= 2000) {
+      lastFull = now;
+      try { seen.back.click(); log('returned to fullscreen'); } catch (e) {}
+    }
+    if (!idleOn() || !seen.button) return;
     if (now - lastClick < 2000) return;
     lastClick = now;
     try { seen.button.click(); log("clicked I'm still here"); } catch (e) {}
@@ -313,13 +399,14 @@
   function onActivity() { noteInput(); }
 
   window.__xboxplayIdle = {
-    NUDGE_AFTER, idleOn, stillHereText, findStillHere, nudgeDue, nudgePad, releaseCapture, pageHidden,
+    NUDGE_AFTER, idleOn, stillHereText, findStillHere, findReturnFullscreen, returnFullscreenLabel, nudgeDue, nudgePad, releaseCapture, pageHidden,
     markIdle(since) { lastInput = since; sawStream = true; nudgeUntil = 0; },
     poll: considerNudge,
     tick: scan,
   };
   try { watchShadows(); } catch (e) {}
   try { keepVisible(); } catch (e) {}
+  try { keepFullscreen(); } catch (e) {}
   try { installWrap(); } catch (e) {}
   setTimeout(installWrap, 0);
   setTimeout(installWrap, 50);
