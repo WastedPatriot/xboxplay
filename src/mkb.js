@@ -19,6 +19,7 @@
     const m = window.__xboxplayMKB;
     if (!m || !e) return false;
     if (e.target && e.target.closest && e.target.closest('xboxplay-ui')) return false;
+    if (hitsUi(e)) return false;
     const key = e.type === 'keydown' || e.type === 'keyup' || e.type === 'keypress';
     if (key) return !!(m.takingKeys && m.takingKeys(e));
     return !!(m.takingMouse && m.takingMouse());
@@ -66,7 +67,7 @@
 
   const M = window.__xboxplayMKB = {
     enabled: pref ? pref === '1' : true, forceActive: false,
-    takingKeys(e) { return keysLive() && !isTyping(e); },
+    takingKeys(e) { return keysLive() && !isTyping(e) && !hitsUi(e); },
     takingMouse() { return pointerOn(); },
     controls() { return NAMES.slice(); },
     active() { return this.takingKeys(); },
@@ -81,6 +82,15 @@
     state() { const s = sample(); return { lx: s.axes[0], ly: s.axes[1], rx: s.axes[2], ry: s.axes[3], lt: s.down[6], rt: s.down[7] }; },
     refreshBadge() { badge(); },
     controllerMode() { return controllerMode(); },
+    releaseVirtual() {
+      if (controllerMode() === 'keyboard' || !exposed) return;
+      exposed = false;
+      try {
+        const e = new Event('gamepaddisconnected');
+        Object.defineProperty(e, 'gamepad', { value: pad(slot) });
+        window.dispatchEvent(e);
+      } catch (e) {}
+    },
     setController(mode) {
       const m = normalizeMode(mode);
       if (!m) return;
@@ -211,27 +221,57 @@
     if (free >= 0) { slot = free; return slot; }
     return -1;
   }
+  function isRealPad(p) {
+    return !!(p && p.connected !== false && p.id !== PAD_ID);
+  }
+  let lastReal = null;
+  let lastPhysicalAt = 0;
+  function deliver(list) {
+    try {
+      const pads = window.__xboxplayPads;
+      if (pads && pads.noteDelivered) pads.noteDelivered(list);
+    } catch (e) {}
+    return list;
+  }
   Navigator.prototype.getGamepads = function () {
     const real = Array.from(origGP.call(this) || []);
+    const phys = real.filter(isRealPad);
     // A real controller (wired or Bluetooth, including the 8BitDo on xpad) is what the game reads.
     // It is returned on its own, not mixed with the keyboard pad. Keyboard mode forces the virtual pad.
-    if (controllerMode() !== 'keyboard' && real.some(Boolean)) return real;
-    if (!M.enabled && !exposed) return controllerMode() === 'keyboard' ? [] : real;
+    // A focus change can make Chromium return an empty list for a moment. Keep the real pad for that gap
+    // so the keyboard pad does not take the slot.
+    if (controllerMode() !== 'keyboard' && phys.length) {
+      lastReal = real.slice();
+      lastPhysicalAt = performance.now();
+      return deliver(real);
+    }
+    // Only while focus is coming back. An unplugged pad still falls through to the keyboard.
+    let gap = false;
+    try { gap = !!(window.__xboxplayPads && window.__xboxplayPads.holding && window.__xboxplayPads.holding()); } catch (e) {}
+    if (controllerMode() !== 'keyboard' && gap && lastReal && performance.now() - lastPhysicalAt < 8000) return deliver(lastReal);
+    if (!M.enabled && !exposed) return deliver(controllerMode() === 'keyboard' ? [] : real);
     const base = controllerMode() === 'keyboard' ? [] : real.slice();
     const at = place(base);
-    if (at < 0) return base;
+    if (at < 0) return deliver(base);
     exposed = true;
-    base[at] = pad(at); gpCalls++; return base;
+    base[at] = pad(at); gpCalls++; return deliver(base);
   };
   setInterval(() => { if (gpCalls || keysLive()) debug('game read the virtual pad ' + gpCalls + ' times in 3s'); gpCalls = 0; }, 3000);
 
-  function emitTo(fn) {
-    if (!M.enabled) return;
-    exposed = true;
+  function sendPad(fn, gamepad) {
     const e = new Event('gamepadconnected');
-    Object.defineProperty(e, 'gamepad', { value: pad(slot) });
+    Object.defineProperty(e, 'gamepad', { value: gamepad });
     if (typeof fn === 'function') fn.call(window, e);
     else if (fn && fn.handleEvent) fn.handleEvent(e);
+  }
+  function emitTo(fn) {
+    if (controllerMode() !== 'keyboard' && lastReal) {
+      const phys = lastReal.filter(isRealPad);
+      if (phys.length) { for (const p of phys) sendPad(fn, p); return; }
+    }
+    if (!M.enabled) return;
+    exposed = true;
+    sendPad(fn, pad(slot));
   }
   replayConnected = emitTo;
   function announce() {
@@ -263,13 +303,35 @@
     streamLive = streaming();
     return streamLive;
   }
+  // A dialog, button, or menu belongs to the page. Clicks there must not be captured.
+  function uiNode(n) {
+    if (!n || !n.tagName) return false;
+    const tag = String(n.tagName).toUpperCase();
+    if (tag === 'XBOXPLAY-UI' || tag === 'BUTTON' || tag === 'A' || tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA' || tag === 'LABEL') return true;
+    let role = '', modal = '';
+    try { role = (n.getAttribute && n.getAttribute('role')) || ''; } catch (e) {}
+    try { modal = (n.getAttribute && n.getAttribute('aria-modal')) || ''; } catch (e) {}
+    if (role === 'dialog' || role === 'alertdialog' || role === 'button' || role === 'menu' || role === 'menuitem') return true;
+    return modal === 'true';
+  }
+  function eventPath(e) {
+    if (!e) return [];
+    try {
+      const path = e.composedPath && e.composedPath();
+      if (path && path.length) return path;
+    } catch (err) {}
+    return e.target ? [e.target] : [];
+  }
+  function hitsUi(e) { return eventPath(e).some(uiNode); }
   function streamTarget(e) {
     if (!streaming()) return null;
-    const path = (e.composedPath && e.composedPath()) || [e.target];
-    if (path.some(n => n && n.tagName === 'XBOXPLAY-UI')) return null;
+    const path = eventPath(e);
+    if (path.some(uiNode)) return null;
     const hit = path.find(n => n && (n.tagName === 'VIDEO' || n.tagName === 'CANVAS') && big(n));
     if (hit) return hit;
-    return findMedia(document, []).find(el => big(el) && (el.tagName === 'CANVAS' || el.readyState >= 2)) || document.body;
+    // A click that landed on some other element (a dialog, a button) is not the picture.
+    if (path.some(n => n && n.tagName && n.tagName !== 'BODY' && n.tagName !== 'HTML')) return null;
+    return findMedia(document, []).find(el => big(el) && (el.tagName === 'CANVAS' || el.readyState >= 2)) || null;
   }
   function unmuteMedia() {
     try { document.querySelectorAll('video, audio').forEach(el => { el.muted = false; const p = el.play && el.play(); if (p && p.catch) p.catch(() => {}); }); }
@@ -342,6 +404,11 @@
   on('mousemove', e => { if (!hasRaw) applyMove(e); });
   on('mousedown', e => {
     refreshStream();
+    // xCloud dialogs (the fullscreen warning, menus) must receive the click.
+    if (hitsUi(e)) {
+      try { if (document.pointerLockElement && document.exitPointerLock) document.exitPointerLock(); } catch (err) {}
+      return;
+    }
     // Clicking the picture captures the mouse. Also clears the Esc pause, even if the lock fails.
     const streamEl = M.enabled && !document.pointerLockElement && !M.forceActive && streamTarget(e);
     if (window.__XBOXPLAY_DEBUG && M.enabled && !document.pointerLockElement) {
@@ -359,11 +426,12 @@
     mouse.add(e.button); ts = performance.now(); eat(e);
   });
   on('mouseup', e => {
+    if (hitsUi(e)) return;
     if (!mouse.delete(e.button)) return;
     ts = performance.now();
     if (pointerOn()) eat(e);
   });
-  on('contextmenu', e => { if (pointerOn()) e.preventDefault(); });
+  on('contextmenu', e => { if (pointerOn() && !hitsUi(e)) e.preventDefault(); });
   document.addEventListener('pointerlockchange', () => {
     const locked = !!document.pointerLockElement;
     debug('pointer lock ' + (locked ? 'on' : 'off'));

@@ -44,7 +44,8 @@
     .net.fair { color: #e6c07b; } .net.poor { color: #e06c6c; border-color: rgba(224,108,108,.45); }
     .note { font-size: 12.5px; color: #9aa0a6; margin: 0 0 8px; min-height: 1.2em; }
     .note.ok { color: #3ddc5b; } .note.bad { color: #e6a23c; }
-    select { background: #222427; color: #eee; border: 1px solid #3a3d42; border-radius: 6px; padding: 4px 6px; font: inherit; }`;
+    select { background: #222427; color: #eee; border: 1px solid #3a3d42; border-radius: 6px; padding: 4px 6px; font: inherit; }
+    button.btn { background: #222427; color: #eee; border: 1px solid #3a3d42; border-radius: 6px; padding: 6px 10px; font: inherit; cursor: pointer; }`;
 
   let host, root, panel = null, toastTimer;
   function mount() {
@@ -88,6 +89,7 @@
           row('A', 'Enter'), row('B', 'Backspace'), row('X', 'X'), row('Y', 'Y'),
           row('View', 'V'), row('Menu', 'M'), row('Xbox', 'N'),
           row('This guide', 'F1'), row('Keyboard and mouse', 'F2'), row('Settings', 'F3'),
+          row('Re-attach controller', 'F4'),
           row('Reload', 'F5'), row('Fullscreen', 'F11'), row('Release mouse', 'Esc'))),
       el('div', { class: 'foot' },
         el('span', { class: 'status' + (mkbOn() ? '' : ' off') }, mkbOn() ? 'Keyboard and mouse on' : 'Keyboard and mouse off'),
@@ -133,6 +135,8 @@
         el('h1', null, 'Settings'),
         el('p', { class: 'sub' }, 'Saved on this computer. Changes apply straight away.'),
         el('label', { class: 'set' }, el('span', null, 'Controller'), pick),
+        el('label', { class: 'set' }, el('span', null, 'Controller not responding'),
+          el('button', { class: 'btn', type: 'button', onclick: () => { if (window.__xboxplayPads) window.__xboxplayPads.reattach('manual'); } }, 'Re-attach')),
         statusEl,
         el('label', { class: 'set' }, el('span', null, 'Stream quality'), quality),
         el('p', { class: 'note' }, 'Bitrate applies the next time the stream connects.'),

@@ -43,6 +43,14 @@ check(readme.includes("I'm still here"), 'readme mentions the idle prompt');
 check(mainSrc.includes("name: 'stream'"), 'stream helper is injected');
 check(mainSrc.includes("name: 'idle'") && mainSrc.indexOf("name: 'mkb'") < mainSrc.indexOf("name: 'idle'"), 'idle helper is injected after the gamepad script');
 check(mainSrc.includes('backgroundThrottling: false'), 'the page is not background-throttled');
+check(mainSrc.includes("app.on('second-instance'") && mainSrc.includes('win.restore()') && mainSrc.includes('win.show()') && mainSrc.includes('win.focus()') && mainSrc.includes('__xboxplayStream.nudge'), 'a second launch raises the open window and nudges the picture');
+check(mainSrc.includes("k === 'F4'") && mainSrc.includes('reattach("manual")') && mainSrc.includes("win.on('focus'") && mainSrc.includes("win.on('restore'"), 'F4 and a raised window re-attach the controller');
+check(overlaySrc.includes('Re-attach controller') && overlaySrc.includes("'F4'") && overlaySrc.includes("reattach('manual')"), 'F3 and the guide can re-attach the controller');
+check(mainSrc.includes("name: 'session'") && mainSrc.indexOf("name: 'session'") < mainSrc.indexOf("name: 'stream'"), 'session helper is injected before the stream helper');
+check(mainSrc.includes('serviceworkers') && mainSrc.includes('cachestorage') && mainSrc.includes('cleared the xbox.com site cache'), 'xbox.com service worker caches are cleared on startup');
+check(mainSrc.includes('before-quit') && mainSrc.includes('__xboxplaySession'), 'closing the window stops the console session');
+const preloadSrc = fs.readFileSync(path.join(__dirname, '../src/preload.js'), 'utf8');
+check(preloadSrc.includes('DOMContentLoaded') && preloadSrc.includes("name !== 'better-xcloud'"), 'better-xcloud waits until the document exists');
 check(mainSrc.includes('disable-background-timer-throttling') && mainSrc.includes('disable-renderer-backgrounding') && mainSrc.includes('disable-backgrounding-occluded-windows'), 'Chromium is told not to throttle a covered window');
 check(mainSrc.includes("powerSaveBlocker.start('prevent-display-sleep')"), 'the display is kept awake');
 const safeAt = mainSrc.indexOf("XBOXPLAY_SAFE === '1'");
@@ -317,6 +325,20 @@ function tmpDir() { return fs.mkdtempSync(path.join(os.tmpdir(), 'xboxplay-keyma
   }
 
   {
+    const { ctx } = load();
+    let clicks = 0;
+    ctx.window.addEventListener('click', () => { clicks++; });
+    const button = { tagName: 'BUTTON', getAttribute() { return null; } };
+    const dialog = { tagName: 'DIV', getAttribute(name) { return name === 'role' ? 'dialog' : null; } };
+    const down = ctx._fire('mousedown', { button: 0, target: button, composedPath() { return [button, dialog]; } });
+    const click = ctx._fire('click', { button: 0, target: button, composedPath() { return [button, dialog]; } });
+    check(!down.prevented && !down.stopped && clicks === 1 && !click.prevented, 'a click on a dialog button reaches the page');
+    const video = { tagName: 'VIDEO', getBoundingClientRect() { return { width: 1280, height: 720 }; }, readyState: 4 };
+    const picture = ctx._fire('mousedown', { button: 0, target: video, composedPath() { return [video]; } });
+    check(picture.prevented, 'a click on the picture is still captured');
+  }
+
+  {
     const { ctx, gp } = load();
     let seen = 0;
     ctx.window.addEventListener('keydown', () => { seen++; });
@@ -502,8 +524,15 @@ function tmpDir() { return fs.mkdtempSync(path.join(os.tmpdir(), 'xboxplay-keyma
     ctx.window.__XBOXPLAY_CONTROLLER = 'keyboard';
     const forced = vm.runInContext('[...navigator.getGamepads()].filter(Boolean).map(g => g.id)', ctx);
     check(forced.length === 1 && forced[0].includes('XInput') && !forced.some(id => id.includes('8BitDo')), 'keyboard mode forces the virtual pad even if a controller is plugged in');
-    ctx._pads.list = [];
     ctx.window.__XBOXPLAY_CONTROLLER = 'auto';
+    let replay = null;
+    ctx.window.addEventListener('gamepadconnected', e => { replay = e.gamepad; });
+    check(replay && replay.id.includes('8BitDo'), 'a new listener is given the real pad, not the keyboard pad');
+    ctx._pads.list = [];
+    ctx.window.__xboxplayPads = { holding() { return true; }, noteDelivered() {} };
+    const gap = vm.runInContext('[...navigator.getGamepads()].filter(Boolean).map(g => g.id)', ctx);
+    check(gap.length === 1 && gap[0].includes('8BitDo') && !gap.some(id => id.includes('XInput')), 'while focus returns, an empty poll does not hand over to the keyboard pad');
+    ctx.window.__xboxplayPads = null;
     const virt = vm.runInContext('[...navigator.getGamepads()].filter(Boolean).map(g => g.id)', ctx);
     check(virt.length === 1 && virt[0].includes('XInput'), 'with no controller plugged in, the keyboard pad is used');
   }
@@ -600,6 +629,19 @@ function tmpDir() { return fs.mkdtempSync(path.join(os.tmpdir(), 'xboxplay-keyma
     check(api.nextReconnect(again, 20000, false) === 'none', 'reconnect can be turned off');
     const found = api.findReconnect(ctx.document);
     check(found === button, 'only a Reconnect button is clicked, not Resume');
+    let pic = api.notePicture(null, { live: true, time: 1, frames: 10 }, 1000);
+    check(pic.action === 'ok', 'a moving picture is left alone');
+    pic = api.notePicture(pic.state, { live: true, time: 1, frames: 10 }, 3000);
+    check(pic.action === 'ok', 'two quiet seconds is not a freeze');
+    pic = api.notePicture(pic.state, { live: true, time: 1, frames: 10 }, 4000);
+    check(pic.action === 'play', 'a picture that sits for 3 seconds is resumed');
+    pic = api.notePicture(pic.state, { live: true, time: 1, frames: 10 }, 7000);
+    check(pic.action === 'restart', 'a picture that stays frozen is reconnected');
+    pic = api.notePicture(pic.state, { live: true, time: 2, frames: 11 }, 8000);
+    check(pic.action === 'ok' && pic.state.attempts === 0, 'frames moving again clears the freeze');
+    const clock = api.notePicture({ since: 1000, time: 1, frames: 10, played: false, restarted: 0, attempts: 0 }, { live: true, time: 5, frames: 10 }, 5000);
+    check(clock.action === 'play', 'frames that stop count as a freeze even if the clock moves');
+    check(api.notePicture(null, { live: false, time: 0, frames: 0 }, 1000).action === 'ok', 'no stream means nothing to resume');
     store['xboxplay.quality'] = 'stable';
     const pc = vm.runInContext('new window.RTCPeerConnection()', ctx);
     await vm.runInContext('pc.setLocalDescription({ type: "offer", sdp })', Object.assign(ctx, { pc, sdp }));
@@ -654,6 +696,8 @@ function tmpDir() { return fs.mkdtempSync(path.join(os.tmpdir(), 'xboxplay-keyma
     Object.defineProperty(Document.prototype, 'hidden', { configurable: true, get() { return pageHidden; } });
     Object.defineProperty(Document.prototype, 'visibilityState', { configurable: true, get() { return pageHidden ? 'hidden' : 'visible'; } });
     Document.prototype.hasFocus = function () { return false; };
+    let realFull = null;
+    Object.defineProperty(Document.prototype, 'fullscreenElement', { configurable: true, get() { return realFull; } });
     const real = { id: '8BitDo', axes: [0, 0, 0, 0], buttons: [{ pressed: false, value: 0 }] };
     function Navigator() {}
     Navigator.prototype.getGamepads = function () { return [real]; };
@@ -705,6 +749,13 @@ function tmpDir() { return fs.mkdtempSync(path.join(os.tmpdir(), 'xboxplay-keyma
     check(api.findStillHere(el('DIV', '', [el('DIV', 'Due to inactivity, your game streaming session will end soon.', [cancel], { attrs: { role: 'alertdialog' } })])) === null, 'a cancel-only dialog is not confirmed');
     const save = el('BUTTON', 'Save');
     check(api.findStillHere(el('DIV', '', [el('DIV', 'Stream quality', [save], { attrs: { role: 'dialog' } })])) === null, 'an ordinary dialog is not confirmed');
+    const goBack = el('BUTTON', 'Return to fullscreen');
+    const leave = el('BUTTON', 'Exit fullscreen');
+    const warn = el('DIV', 'Warning. Exiting full screen mode can degrade the gameplay experience.', [goBack, leave], { attrs: { role: 'dialog' } });
+    check(api.findReturnFullscreen(el('DIV', '', [warn])) === goBack, 'the fullscreen warning offers return, not exit');
+    check(api.returnFullscreenLabel('Revenir en plein écran') === true, 'a localised return button is recognised');
+    check(api.findReturnFullscreen(el('DIV', '', [el('DIV', 'Stream quality', [save], { attrs: { role: 'dialog' } })])) === null, 'an ordinary dialog is not a fullscreen warning');
+    check(api.findReturnFullscreen(el('DIV', '', [el('DIV', 'Exiting full screen mode can degrade the gameplay experience.', [leave], { attrs: { role: 'dialog' } })])) === null, 'exit fullscreen is not clicked for you');
 
     const t = 1000;
     check(api.nudgeDue(t, t + 2 * 60 * 1000, true) === false, 'two quiet minutes is not a nudge');
@@ -718,10 +769,26 @@ function tmpDir() { return fs.mkdtempSync(path.join(os.tmpdir(), 'xboxplay-keyma
     check(api.releaseCapture({ pointerLockElement: {}, exitPointerLock() {} }, false) === false, 'the mouse stays captured when nothing is showing');
 
     const page = new ctx.Document();
-    check(page.hidden === false && page.visibilityState === 'visible' && page.hasFocus() === true, 'while anti-idle is on the page is not treated as hidden');
+    check(page.hidden === false && page.visibilityState === 'visible' && page.hasFocus() === true, 'while anti-idle is on the page stays visible and focused');
     store['xboxplay.idle'] = '0';
     check(page.hidden === true && page.visibilityState === 'hidden' && page.hasFocus() === false, 'turning anti-idle off reports the real page visibility');
     store['xboxplay.idle'] = '1';
+    check(api.pageHidden() === true, 'anti-idle still knows when the window is really hidden');
+    const prevQS = doc.querySelectorAll.bind(doc);
+    doc.querySelectorAll = (sel) => (sel === 'video' ? [{ videoWidth: 1920, paused: false, srcObject: {} }] : prevQS(sel));
+    doc.documentElement = { tagName: 'HTML' };
+    const live = new ctx.Document();
+    check(live.hidden === false && live.visibilityState === 'visible' && live.hasFocus() === true, 'a playing picture stays visible and focused');
+    check(live.fullscreenElement === doc.documentElement, 'a playing stream still looks fullscreen');
+    realFull = { tagName: 'DIV' };
+    check(live.fullscreenElement && live.fullscreenElement.tagName === 'DIV', 'a real fullscreen element is reported as it is');
+    realFull = null;
+    store['xboxplay.idle'] = '0';
+    check(new ctx.Document().hidden === false && new ctx.Document().hasFocus() === true, 'a playing picture stays visible even if anti-idle is off');
+    store['xboxplay.idle'] = '1';
+    doc.querySelectorAll = prevQS;
+    check(new ctx.Document().hidden === false, 'with no picture, anti-idle still reports the page as visible');
+    check(new ctx.Document().fullscreenElement == null, 'with no picture the page sees that fullscreen has ended');
 
     const nav = new ctx.Navigator();
     const early = nav.getGamepads();
@@ -729,6 +796,8 @@ function tmpDir() { return fs.mkdtempSync(path.join(os.tmpdir(), 'xboxplay-keyma
     api.markIdle(Date.now() - api.NUDGE_AFTER);
     const moved = nav.getGamepads();
     check(moved[0] !== real && Math.abs(moved[0].axes[2] - 0.02) < 0.001 && real.axes[2] === 0, 'the pad the page reads is nudged only after the quiet wait');
+    const back = nav.getGamepads();
+    check(back[0] === real && real.axes[2] === 0, 'the nudge hands the original pad back');
     real.axes[2] = 0.4;
     const busy = nav.getGamepads();
     check(busy[0] === real && real.axes[2] === 0.4, 'real stick movement is passed through');
@@ -749,6 +818,14 @@ function tmpDir() { return fs.mkdtempSync(path.join(os.tmpdir(), 'xboxplay-keyma
     api.tick();
     check(saveBtn.clicked === 0 && doc.pointerLockElement === null, 'an ordinary dialog releases the mouse and is not clicked');
     doc.kids.pop();
+    const returnBtn = el('BUTTON', 'Return to fullscreen');
+    const exitBtn = el('BUTTON', 'Exit fullscreen');
+    doc.kids.push(el('DIV', 'Warning. Exiting full screen mode can degrade the gameplay experience.', [returnBtn, exitBtn], { attrs: { role: 'dialog' } }));
+    api.tick();
+    check(returnBtn.clicked === 1 && exitBtn.clicked === 0, 'the fullscreen warning is sent back to fullscreen');
+    api.tick();
+    check(returnBtn.clicked === 1, 'the fullscreen warning is not clicked again straight away');
+    doc.kids.pop();
 
     const trapped = el('BUTTON', "I'm still here");
     const closed = el('DIV', '', [trapped]);
@@ -762,6 +839,121 @@ function tmpDir() { return fs.mkdtempSync(path.join(os.tmpdir(), 'xboxplay-keyma
     doc.pointerLockElement = { locked: true };
     api.tick();
     check(trapped.clicked === clicks, 'the confirm button is not clicked again straight away');
+  }
+
+  {
+    const { readSession, writeSession, eraseSession, validSession } = require('../src/session-file');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'xboxplay-session-'));
+    const stopUrl = 'https://uks.core.gssv-play-prodxhome.xboxlive.com/v5/sessions/home/04DBC99C-77BA-4D2E-B8D0-0B39CC16869C';
+    const authorization = 'Bearer test-token-value';
+    check(validSession({ stopUrl: stopUrl + '?x=1', authorization }) === null, 'a session url with a query string is ignored');
+    check(validSession({ stopUrl: 'http://xboxlive.com/v5/sessions/home/04DBC99C-77BA-4D2E-B8D0-0B39CC16869C', authorization }) === null, 'a session url has to be https on xboxlive.com');
+    check(readSession(dir) === null, 'a missing session file is unset');
+    check(writeSession(dir, { stopUrl, authorization }) === true, 'the console session is saved');
+    const saved = readSession(dir);
+    check(saved && saved.stopUrl === stopUrl && saved.authorization === authorization, 'the saved session can be read back');
+    check((fs.statSync(path.join(dir, 'session.json')).mode & 0o777) === 0o600, 'the session file is not world-readable');
+    const real = path.join(dir, 'real.json');
+    fs.writeFileSync(real, '{"stopUrl":"https://evil.example/secret","authorization":"Bearer other-token"}\n');
+    fs.unlinkSync(path.join(dir, 'session.json'));
+    fs.symlinkSync('real.json', path.join(dir, 'session.json'));
+    check(readSession(dir) === null && writeSession(dir, { stopUrl, authorization }) === false, 'a symlink session file is ignored');
+    check(fs.readFileSync(real, 'utf8').includes('evil.example'), 'the symlink target is left alone');
+    fs.unlinkSync(path.join(dir, 'session.json'));
+    check(writeSession(dir, { stopUrl, authorization }) === true && eraseSession(dir) === undefined && readSession(dir) === null, 'the session file is removed after the stop');
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+
+  {
+    const calls = [];
+    const notes = [];
+    const PLAY = 'https://uks.core.gssv-play-prodxhome.xboxlive.com/v5/sessions/home/play';
+    const SESSION = 'https://uks.core.gssv-play-prodxhome.xboxlive.com/v5/sessions/home/04DBC99C-77BA-4D2E-B8D0-0B39CC16869C';
+    const body = { sessionId: '04DBC99C-77BA-4D2E-B8D0-0B39CC16869C', sessionPath: 'v5/sessions/home/04DBC99C-77BA-4D2E-B8D0-0B39CC16869C' };
+    function fetch(url, init) {
+      calls.push({ url: String(url), method: String((init && init.method) || 'GET').toUpperCase() });
+      if (String((init && init.method) || '').toUpperCase() === 'DELETE') return Promise.resolve({ ok: true, status: 204 });
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        clone() { return { json: () => Promise.resolve(body) }; },
+      });
+    }
+    const ctx = {
+      window: {
+        fetch,
+        addEventListener() {},
+        xboxplayHost: {
+          noteSession(info) { notes.push(info); },
+          clearStreamCache() { return Promise.resolve(true); },
+        },
+      },
+      location: { href: 'https://www.xbox.com/en-US/play' },
+      console, Promise, URL, JSON, Object, String, Array, setTimeout, clearTimeout,
+    };
+    ctx.window.window = ctx.window;
+    vm.createContext(ctx);
+    vm.runInContext(fs.readFileSync(path.join(__dirname, '../src/session.js'), 'utf8'), ctx);
+    const api = vm.runInContext('window.__xboxplaySession', ctx);
+    check(api.isHomePlay(PLAY, 'POST') === true, 'a home play request is recognised');
+    check(api.isHomePlay('https://www.xbox.com/en-US/play', 'POST') === false, 'the website itself is not a console session');
+    check(api.stopUrlFrom(PLAY, body) === SESSION, 'the stop url is the home session, not the play url');
+    check(api.sessionFromUrl(SESSION + '/state', 'Bearer test-token-value').stopUrl === SESSION, 'a state poll points at the same session');
+    await vm.runInContext('window.fetch(u, { method: "POST", headers: { Authorization: "Bearer test-token-value" } })', Object.assign(ctx, { u: PLAY }));
+    await vm.runInContext('new Promise(r => setTimeout(r, 0))', ctx);
+    check(notes.some(n => n && n.stopUrl === SESSION && n.authorization === 'Bearer test-token-value'), 'a home play response is remembered');
+    calls.length = 0;
+    await vm.runInContext('window.fetch(u, { method: "POST", headers: { Authorization: "Bearer test-token-value" } })', ctx);
+    check(calls[0] && calls[0].method === 'DELETE' && calls[0].url === SESSION, 'a stale console session is deleted before the next start');
+    check(calls.some(c => c.method === 'POST' && c.url === PLAY), 'the new session start still goes out');
+    const stopped = await vm.runInContext('window.__xboxplaySession.stop()', ctx);
+    check(stopped === true, 'stop deletes the console session');
+  }
+
+  {
+    const ctx = {
+      window: { addEventListener() {}, BX_STREAM_SETTINGS: { xCloudPollingMode: 'none' } },
+      document: { addEventListener() {}, hidden: false, querySelectorAll() { return []; }, querySelector() { return null; } },
+      navigator: { getGamepads() { return []; } },
+      Navigator: function Navigator() {},
+      console, setTimeout, clearTimeout, setInterval, clearInterval, Date, Object, Array, Set, String, Number, Math,
+    };
+    ctx.Navigator.prototype = { getGamepads() { return []; } };
+    ctx.window.window = ctx.window;
+    vm.createContext(ctx);
+    vm.runInContext(fs.readFileSync(path.join(__dirname, '../src/pads.js'), 'utf8'), ctx);
+    const api = vm.runInContext('window.__xboxplayPads', ctx);
+    const eight = { id: '8BitDo Ultimate 2C Wireless', connected: true, index: 0, buttons: [{ pressed: true, value: 1 }], axes: [0, 0, 0, 0] };
+    const virt = { id: 'Xbox 360 Controller (XInput STANDARD GAMEPAD)', connected: true, index: 1, buttons: [], axes: [0, 0, 0, 0] };
+    const wins = api.realWins([null, virt, eight]);
+    check(wins.length === 1 && wins[0] === eight, 'a real pad wins over the keyboard pad');
+    const mgr = { mode: '', setPollingMode(mode) { this.mode = mode; } };
+    const found = api.collectManagers({ player: { input: mgr } });
+    check(found.length === 1 && found[0] === mgr, 'the polling manager is found on the player');
+    let st = { since: 0, sig: '', cool: 0 };
+    st = api.shouldReattach(st, { live: true, poll: 'all', physicalSig: '0:0:0', delivered: true }, 1000).state;
+    let step = api.shouldReattach(st, { live: true, poll: 'none', physicalSig: '0:1:0', delivered: false }, 1000);
+    check(step.action === 'ok', 'one changed sample does not re-attach yet');
+    step = api.shouldReattach(step.state, { live: true, poll: 'none', physicalSig: '0:1:0', delivered: false }, 3000);
+    check(step.action === 'reattach', 'polling left at none for 2 seconds re-attaches the controller');
+    step = api.shouldReattach(step.state, { live: true, poll: 'none', physicalSig: '0:1:1', delivered: false }, 3200);
+    check(step.action === 'ok', 're-attach waits before it tries again');
+    step = api.shouldReattach({ since: 0, sig: '0:0:0', cool: 0 }, { live: false, poll: 'none', physicalSig: '0:1:0', delivered: false }, 9000);
+    check(step.action === 'ok', 'a controller change outside a stream does not re-attach');
+    check(api.normalizePoll('All') === 'all' && api.normalizePoll('NONE') === 'none', 'polling mode is read as all or none');
+    const video = { srcObject: {}, videoWidth: 1280, readyState: 4 };
+    ctx.document.querySelectorAll = (sel) => (sel === 'video' ? [video] : []);
+    const player = { mode: '', setPollingMode(mode) { this.mode = mode; } };
+    ctx.window.StreamPlayer = player;
+    check(api.reattach('manual') === true && player.mode === 'all', 'a live stream turns controller polling on');
+    player.setPollingMode('none');
+    check(player.mode === 'all', 'polling stays on while the game is showing');
+    ctx.window.__xboxplayModal = true;
+    player.setPollingMode('none');
+    check(player.mode === 'none', 'an open dialog can take the controller for its buttons');
+    ctx.window.__xboxplayModal = false;
+    player.setPollingMode('none');
+    check(player.mode === 'all', 'closing the dialog gives the controller back to the game');
   }
 
   if (failed) {
